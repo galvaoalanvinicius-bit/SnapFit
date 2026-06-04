@@ -2,7 +2,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, Profile } from '@/lib/types';
-import { BottomNav } from '../dashboard/page';
+import { BottomNav } from '@/components/BottomNav';
 
 export default function ChatPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -53,13 +53,11 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-black flex flex-col pb-20">
-      {/* Header */}
       <div className="max-w-sm mx-auto w-full p-5 pt-8">
         <h1 className="text-2xl font-bold text-white">NutriBot 🤖</h1>
         <p className="text-cyan-400 text-sm mt-1">Nutricionista IA • SnapFit</p>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 max-w-sm mx-auto w-full px-5 overflow-y-auto space-y-3 pb-4">
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -84,7 +82,6 @@ export default function ChatPage() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
       <div className="max-w-sm mx-auto w-full px-5 pb-24">
         <div className="flex gap-3 items-end">
           <textarea

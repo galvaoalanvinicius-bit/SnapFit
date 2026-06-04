@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { Meal } from '@/lib/types';
-import { BottomNav } from '../dashboard/page';
+import { BottomNav } from '@/components/BottomNav';
 import { format, isToday, isYesterday, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 

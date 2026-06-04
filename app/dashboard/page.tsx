@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import type { Profile, Meal } from '@/lib/types';
+import { BottomNav } from '@/components/BottomNav';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -52,7 +53,6 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-black pb-24">
       <div className="max-w-sm mx-auto p-5">
-        {/* Header */}
         <div className="pt-8 pb-6">
           <p className="text-gray-500 text-sm">Bem-vindo de volta</p>
           <h1 className="text-2xl font-bold text-white mt-1">
@@ -61,7 +61,6 @@ export default function DashboardPage() {
           <span className="text-xs text-cyan-400 mt-1 block">{goalLabel[profile?.goal ?? 'maintain']}</span>
         </div>
 
-        {/* Calorie Card */}
         <div className="glass-card rounded-2xl p-5 mb-5 neon-border-blue">
           <div className="flex justify-between items-start mb-3">
             <div>
@@ -77,7 +76,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* Main CTA */}
         <Link href="/camera"
           className="neon-btn-orange block rounded-2xl p-6 text-center mb-5">
           <div className="text-4xl mb-2">📸</div>
@@ -85,7 +83,6 @@ export default function DashboardPage() {
           <p className="text-gray-400 text-sm mt-1">Tire uma foto do seu prato</p>
         </Link>
 
-        {/* Today's meals */}
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-white font-semibold">Refeições hoje</h2>
           <Link href="/history" className="text-cyan-400 text-sm">Ver tudo →</Link>
@@ -120,34 +117,7 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
-
-      {/* Bottom Nav */}
       <BottomNav active="home" />
     </div>
   );
 }
-
-function BottomNav({ active }: { active: string }) {
-  const items = [
-    { href: '/dashboard', icon: '🏠', label: 'Home', key: 'home' },
-    { href: '/camera', icon: '📸', label: 'Analisar', key: 'camera' },
-    { href: '/chat', icon: '🤖', label: 'NutriBot', key: 'chat' },
-    { href: '/history', icon: '📋', label: 'Histórico', key: 'history' },
-    { href: '/profile', icon: '👤', label: 'Perfil', key: 'profile' },
-  ];
-  return (
-    <nav className="fixed bottom-0 left-0 right-0 bg-black border-t border-gray-900 px-4 py-3 z-50">
-      <div className="max-w-sm mx-auto flex justify-around">
-        {items.map(item => (
-          <Link key={item.key} href={item.href}
-            className={`flex flex-col items-center gap-1 ${active === item.key ? 'text-cyan-400' : 'text-gray-600'}`}>
-            <span className="text-xl">{item.icon}</span>
-            <span className="text-xs font-medium">{item.label}</span>
-          </Link>
-        ))}
-      </div>
-    </nav>
-  );
-}
-
-export { BottomNav };

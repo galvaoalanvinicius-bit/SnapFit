@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import type { Profile } from '@/lib/types';
-import { BottomNav } from '../dashboard/page';
+import { BottomNav } from '@/components/BottomNav';
 
 const goalLabels: Record<string, string> = {
   lose_weight: '🔥 Emagrecimento',
@@ -60,7 +60,6 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold text-white">Meu Perfil 👤</h1>
         </div>
 
-        {/* Avatar */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-full neon-border-blue flex items-center justify-center text-4xl font-black text-cyan-400 mb-3 glow-ring">
             {profile?.full_name?.[0]?.toUpperCase() ?? 'U'}
@@ -69,7 +68,6 @@ export default function ProfilePage() {
           <p className="text-gray-500 text-sm">{profile?.email}</p>
         </div>
 
-        {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Peso', value: profile?.weight ? `${profile.weight}kg` : '—' },
@@ -83,7 +81,6 @@ export default function ProfilePage() {
           ))}
         </div>
 
-        {/* BMI */}
         {bmi && (
           <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
             <span className="text-gray-400">IMC</span>
@@ -94,13 +91,11 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {/* Goal */}
         <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
           <span className="text-gray-400">Objetivo</span>
           <span className="text-white font-semibold">{goalLabels[profile?.goal ?? 'maintain']}</span>
         </div>
 
-        {/* Subscription */}
         <div className="glass-card rounded-xl p-4 mb-6 flex justify-between items-center">
           <span className="text-gray-400">Assinatura</span>
           <span className={isActive ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>
@@ -108,7 +103,6 @@ export default function ProfilePage() {
           </span>
         </div>
 
-        {/* Actions */}
         <div className="space-y-3">
           <button onClick={() => router.push('/onboarding')}
             className="neon-btn w-full py-4 rounded-xl text-cyan-400 font-bold">

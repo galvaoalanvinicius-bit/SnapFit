@@ -2,7 +2,7 @@
 import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase, uploadMealImage } from '@/lib/supabase';
-import { BottomNav } from '../dashboard/page';
+import { BottomNav } from '@/components/BottomNav';
 
 export default function CameraPage() {
   const router = useRouter();
