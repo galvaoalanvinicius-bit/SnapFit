@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createHmac } from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,6 +8,31 @@ export async function POST(req: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+
+    // Verificar assinatura do Mercado Pago
+    const secret = process.env.MP_WEBHOOK_SECRET;
+    if (secret) {
+      const xSignature = req.headers.get('x-signature') ?? '';
+      const xRequestId = req.headers.get('x-request-id') ?? '';
+      const url = new URL(req.url);
+      const dataId = url.searchParams.get('data.id') ?? '';
+
+      const parts = xSignature.split(',');
+      let ts = '';
+      let hash = '';
+      for (const part of parts) {
+        const [key, value] = part.split('=');
+        if (key?.trim() === 'ts') ts = value?.trim() ?? '';
+        if (key?.trim() === 'v1') hash = value?.trim() ?? '';
+      }
+
+      const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
+      const hmac = createHmac('sha256', secret).update(manifest).digest('hex');
+
+      if (hmac !== hash) {
+        return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
+      }
+    }
 
     const body = await req.json();
 
