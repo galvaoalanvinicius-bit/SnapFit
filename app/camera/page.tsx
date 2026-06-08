@@ -29,6 +29,8 @@ export default function CameraPage() {
       const { data: profile } = await supabase
         .from('profiles').select('*').eq('id', user.id).single();
 
+      if (!profile) throw new Error('Perfil não encontrado');
+
       const imageUrl = await uploadMealImage(user.id, image);
 
       const res = await fetch('/api/analyze', {
@@ -37,24 +39,38 @@ export default function CameraPage() {
         body: JSON.stringify({ imageUrl, profile }),
       });
 
-      if (!res.ok) throw new Error('Erro na análise');
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error ?? 'Erro na análise');
+      }
+
       const analysis = await res.json();
 
-      const { data: meal, error: mealError } = await supabase.from('meals').insert({
-        user_id: user.id,
-        image_url: imageUrl,
-        calories: analysis.calories,
-        proteins: analysis.proteins,
-        carbs: analysis.carbs,
-        fat: analysis.fat,
-        healthy_score: analysis.healthy_score,
-        ai_feedback: analysis.ai_feedback,
-        tips: analysis.tips,
-        recipes: analysis.recipes,
-        meal_name: analysis.meal_name,
-      }).select().single();
+      if (!analysis || !analysis.calories) {
+        throw new Error('A IA não conseguiu analisar a imagem. Tente outra foto.');
+      }
 
-      if (mealError) throw mealError;
+      const { data: meal, error: mealError } = await supabase
+        .from('meals')
+        .insert({
+          user_id: user.id,
+          image_url: imageUrl,
+          calories: analysis.calories ?? 0,
+          proteins: analysis.proteins ?? 0,
+          carbs: analysis.carbs ?? 0,
+          fat: analysis.fat ?? 0,
+          healthy_score: analysis.healthy_score ?? 5,
+          ai_feedback: analysis.ai_feedback ?? '',
+          tips: analysis.tips ?? [],
+          recipes: analysis.recipes ?? [],
+          meal_name: analysis.meal_name ?? 'Refeição',
+        })
+        .select()
+        .single();
+
+      if (mealError) throw new Error(mealError.message);
+      if (!meal) throw new Error('Erro ao salvar refeição');
+
       router.push(`/result/${meal.id}`);
     } catch (e: any) {
       setError(e.message ?? 'Erro ao analisar. Tente novamente.');
@@ -80,7 +96,9 @@ export default function CameraPage() {
             </button>
 
             {error && (
-              <div className="bg-red-950 border border-red-500 rounded-xl p-3 text-red-400 text-sm mb-4">{error}</div>
+              <div className="bg-red-950 border border-red-500 rounded-xl p-3 text-red-400 text-sm mb-4">
+                {error}
+              </div>
             )}
 
             <button onClick={handleAnalyze} disabled={loading}
