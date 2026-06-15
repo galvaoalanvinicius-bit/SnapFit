@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { createHmac } from 'crypto';
 
 export async function POST(req: NextRequest) {
   try {
@@ -9,65 +8,78 @@ export async function POST(req: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // Verificar assinatura do Mercado Pago
-    const secret = process.env.MP_WEBHOOK_SECRET;
-    if (secret) {
-      const xSignature = req.headers.get('x-signature') ?? '';
-      const xRequestId = req.headers.get('x-request-id') ?? '';
-      const url = new URL(req.url);
-      const dataId = url.searchParams.get('data.id') ?? '';
-
-      const parts = xSignature.split(',');
-      let ts = '';
-      let hash = '';
-      for (const part of parts) {
-        const [key, value] = part.split('=');
-        if (key?.trim() === 'ts') ts = value?.trim() ?? '';
-        if (key?.trim() === 'v1') hash = value?.trim() ?? '';
-      }
-
-      const manifest = `id:${dataId};request-id:${xRequestId};ts:${ts};`;
-      const hmac = createHmac('sha256', secret).update(manifest).digest('hex');
-
-      if (hmac !== hash) {
-        return NextResponse.json({ error: 'invalid signature' }, { status: 401 });
-      }
-    }
-
     const body = await req.json();
-
-    if (body.type !== 'subscription_preapproval' && body.type !== 'payment') {
-      return NextResponse.json({ ok: true });
-    }
+    console.log('MP Webhook recebido:', JSON.stringify(body));
 
     const mpId = body.data?.id;
-    if (!mpId) return NextResponse.json({ error: 'missing id' }, { status: 400 });
-
-    const mpRes = await fetch(`https://api.mercadopago.com/preapproval/${mpId}`, {
-      headers: {
-        'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-      },
-    });
-
-    const mp = await mpRes.json();
-
-    if (!mp.payer_email) {
+    if (!mpId) {
+      console.log('ID não encontrado no body');
       return NextResponse.json({ ok: true });
     }
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('email', mp.payer_email)
-      .single();
+    // Tentar buscar como assinatura primeiro
+    let mp: any = null;
+    let userEmail = '';
 
-    if (!profile) {
-      return NextResponse.json({ error: 'user not found' }, { status: 404 });
+    const preapprovalRes = await fetch(
+      `https://api.mercadopago.com/preapproval/${mpId}`,
+      {
+        headers: {
+          'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+        },
+      }
+    );
+
+    if (preapprovalRes.ok) {
+      mp = await preapprovalRes.json();
+      console.log('Preapproval:', JSON.stringify(mp));
+      userEmail = mp.payer_email ?? '';
     }
 
-    const status = mp.status === 'authorized' ? 'active' : 'inactive';
-    const expiresAt = mp.next_payment_date ?? null;
+    // Se não achou como assinatura, tenta como pagamento
+    if (!userEmail) {
+      const paymentRes = await fetch(
+        `https://api.mercadopago.com/v1/payments/${mpId}`,
+        {
+          headers: {
+            'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
+          },
+        }
+      );
 
+      if (paymentRes.ok) {
+        const payment = await paymentRes.json();
+        console.log('Payment:', JSON.stringify(payment));
+        userEmail = payment.payer?.email ?? '';
+      }
+    }
+
+    if (!userEmail) {
+      console.log('Email do pagador não encontrado');
+      return NextResponse.json({ ok: true });
+    }
+
+    console.log('Email encontrado:', userEmail);
+
+    // Buscar usuário pelo email
+    const { data: profile, error: profileError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', userEmail)
+      .single();
+
+    if (profileError || !profile) {
+      console.log('Usuário não encontrado para email:', userEmail);
+      return NextResponse.json({ ok: true });
+    }
+
+    console.log('Usuário encontrado:', profile.id);
+
+    // Calcular data de expiração (30 dias)
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    // Verificar se já existe assinatura
     const { data: existing } = await supabase
       .from('subscriptions')
       .select('id')
@@ -75,28 +87,40 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existing) {
-      await supabase
+      const { error: updateError } = await supabase
         .from('subscriptions')
-        .update({ status, expires_at: expiresAt, mp_subscription_id: mpId })
+        .update({
+          status: 'active',
+          expires_at: expiresAt.toISOString(),
+          mp_subscription_id: String(mpId),
+          updated_at: new Date().toISOString(),
+        })
         .eq('user_id', profile.id);
+
+      if (updateError) console.log('Erro ao atualizar:', updateError.message);
+      else console.log('Assinatura atualizada com sucesso!');
     } else {
-      await supabase
+      const { error: insertError } = await supabase
         .from('subscriptions')
         .insert({
           user_id: profile.id,
-          status,
+          status: 'active',
           plan: 'monthly',
-          mp_subscription_id: mpId,
-          expires_at: expiresAt,
+          mp_subscription_id: String(mpId),
+          expires_at: expiresAt.toISOString(),
         });
+
+      if (insertError) console.log('Erro ao inserir:', insertError.message);
+      else console.log('Assinatura criada com sucesso!');
     }
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
+    console.log('Erro geral no webhook:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
 
 export async function GET() {
-  return NextResponse.json({ status: 'SnapFit webhook ativo' });
+  return NextResponse.json({ status: 'SnapFit webhook ativo ✅' });
 }
