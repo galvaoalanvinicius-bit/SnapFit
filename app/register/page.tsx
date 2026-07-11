@@ -10,22 +10,24 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  const [source, setSource] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
     setError('');
+    if (!source) { setError('Selecione como nos conheceu'); return; }
     if (password !== confirm) { setError('As senhas não coincidem'); return; }
     if (password.length < 6) { setError('Senha deve ter ao menos 6 caracteres'); return; }
     setLoading(true);
     try {
       const { error } = await supabase.auth.signUp({
-        email, password,
-        options: { data: { full_name: name } },
+        email,
+        password,
+        options: { data: { full_name: name, source } },
       });
       if (error) throw error;
-      alert('Conta criada! Verifique seu e-mail.');
       router.push('/login');
     } catch (e: any) {
       setError(e.message);
@@ -46,23 +48,55 @@ export default function RegisterPage() {
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
             <label className="text-gray-400 text-sm mb-2 block">Nome completo</label>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Seu nome" required />
+            <input value={name} onChange={e => setName(e.target.value)}
+              placeholder="Seu nome" required />
           </div>
           <div>
             <label className="text-gray-400 text-sm mb-2 block">E-mail</label>
-            <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="seu@email.com" required />
+            <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+              placeholder="seu@email.com" required />
           </div>
           <div>
             <label className="text-gray-400 text-sm mb-2 block">Senha</label>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Mínimo 6 caracteres" required />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Mínimo 6 caracteres" required />
           </div>
           <div>
             <label className="text-gray-400 text-sm mb-2 block">Confirmar senha</label>
-            <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repita a senha" required />
+            <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+              placeholder="Repita a senha" required />
+          </div>
+
+          {/* Como nos conheceu */}
+          <div>
+            <label className="text-gray-400 text-sm mb-3 block">
+              Como você descobriu o SnapFit?
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { value: 'academia_tnt', label: '🏋️ Academia TNT' },
+                { value: 'sozinho', label: '🔍 Por conta própria' },
+              ].map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setSource(opt.value)}
+                  className={`p-4 rounded-xl text-sm font-semibold transition-all border ${
+                    source === opt.value
+                      ? 'border-cyan-400 bg-cyan-950/30 text-cyan-400'
+                      : 'border-gray-800 bg-gray-950 text-gray-400'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {error && (
-            <div className="bg-red-950 border border-red-500 rounded-xl p-3 text-red-400 text-sm">{error}</div>
+            <div className="bg-red-950 border border-red-500 rounded-xl p-3 text-red-400 text-sm">
+              {error}
+            </div>
           )}
 
           <button type="submit" disabled={loading}

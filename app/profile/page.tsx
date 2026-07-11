@@ -11,19 +11,28 @@ const goalLabels: Record<string, string> = {
   maintain: '⚖️ Manutenção',
 };
 
+const sourceLabels: Record<string, string> = {
+  academia_tnt: '🏋️ Academia TNT',
+  sozinho: '🔍 Por conta própria',
+};
+
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [isActive, setIsActive] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/login'); return; }
-      const { data: p } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      const { data: p } = await supabase
+        .from('profiles').select('*').eq('id', user.id).single();
       setProfile(p);
-      const { data: sub } = await supabase.from('subscriptions').select('*')
+      setIsAdmin(!!p?.is_admin);
+      const { data: sub } = await supabase
+        .from('subscriptions').select('*')
         .eq('user_id', user.id).eq('status', 'active').single();
       setIsActive(!!sub);
       setLoading(false);
@@ -60,14 +69,21 @@ export default function ProfilePage() {
           <h1 className="text-2xl font-bold text-white">Meu Perfil 👤</h1>
         </div>
 
+        {/* Avatar */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-20 h-20 rounded-full neon-border-blue flex items-center justify-center text-4xl font-black text-cyan-400 mb-3 glow-ring">
             {profile?.full_name?.[0]?.toUpperCase() ?? 'U'}
           </div>
           <p className="text-white font-bold text-lg">{profile?.full_name}</p>
           <p className="text-gray-500 text-sm">{profile?.email}</p>
+          {(profile as any)?.source && (
+            <span className="mt-2 text-xs bg-cyan-950 text-cyan-400 px-3 py-1 rounded-full">
+              {sourceLabels[(profile as any).source] ?? (profile as any).source}
+            </span>
+          )}
         </div>
 
+        {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Peso', value: profile?.weight ? `${profile.weight}kg` : '—' },
@@ -81,6 +97,7 @@ export default function ProfilePage() {
           ))}
         </div>
 
+        {/* BMI */}
         {bmi && (
           <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
             <span className="text-gray-400">IMC</span>
@@ -91,11 +108,15 @@ export default function ProfilePage() {
           </div>
         )}
 
+        {/* Objetivo */}
         <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
           <span className="text-gray-400">Objetivo</span>
-          <span className="text-white font-semibold">{goalLabels[profile?.goal ?? 'maintain']}</span>
+          <span className="text-white font-semibold">
+            {goalLabels[profile?.goal ?? 'maintain']}
+          </span>
         </div>
 
+        {/* Assinatura */}
         <div className="glass-card rounded-xl p-4 mb-6 flex justify-between items-center">
           <span className="text-gray-400">Assinatura</span>
           <span className={isActive ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>
@@ -103,24 +124,36 @@ export default function ProfilePage() {
           </span>
         </div>
 
+        {/* Ações */}
         <div className="space-y-3">
           <button onClick={() => router.push('/onboarding')}
             className="neon-btn w-full py-4 rounded-xl text-cyan-400 font-bold">
             ✏️ Editar dados físicos
           </button>
+
           {!isActive && (
             <button onClick={() => router.push('/subscribe')}
               className="neon-btn-orange w-full py-4 rounded-xl text-orange-400 font-bold">
               ⚡ Assinar agora
             </button>
           )}
+
+          {isAdmin && (
+            <button onClick={() => router.push('/admin')}
+              className="w-full py-4 rounded-xl text-purple-400 font-bold border border-purple-900 bg-purple-950/20">
+              🛡️ Painel Admin
+            </button>
+          )}
+
           <button onClick={handleLogout}
             className="w-full py-4 rounded-xl text-red-400 font-semibold border border-red-900">
             Sair da conta
           </button>
         </div>
 
-        <p className="text-gray-700 text-xs text-center mt-6">SnapFit — Uma empresa do Grupo NSG</p>
+        <p className="text-gray-700 text-xs text-center mt-6">
+          SnapFit — Uma empresa do Grupo NSG
+        </p>
       </div>
       <BottomNav active="profile" />
     </div>
