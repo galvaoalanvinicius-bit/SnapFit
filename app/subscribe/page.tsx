@@ -13,6 +13,15 @@ const FEATURES = [
 ];
 
 export default function SubscribePage() {
+  const router = useRouter();
+
+  function handleSubscribe() {
+    window.open(MP_PLAN_LINK, '_blank');
+    setTimeout(() => {
+      router.push('/tips');
+    }, 1500);
+  }
+
   return (
     <div className="min-h-screen bg-black p-6 flex flex-col items-center">
       <div className="w-full max-w-sm">
@@ -37,10 +46,11 @@ export default function SubscribePage() {
           <div className="text-gray-400 text-sm">por mês · cancele quando quiser</div>
         </div>
 
-        <a href={MP_PLAN_LINK} target="_blank" rel="noopener noreferrer"
+        <button
+          onClick={handleSubscribe}
           className="neon-btn-orange block w-full py-4 rounded-xl text-orange-400 font-bold text-center text-base">
           🔒 Assinar com Mercado Pago
-        </a>
+        </button>
 
         <p className="text-gray-600 text-xs text-center mt-4 leading-5">
           Ao assinar você concorda com os Termos de Uso.<br />
