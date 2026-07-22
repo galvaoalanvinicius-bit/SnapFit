@@ -3,10 +3,10 @@ import Link from 'next/link';
 
 const items = [
   { href: '/dashboard', icon: '🏠', label: 'Home', key: 'home' },
+  { href: '/cardapio', icon: '🍽️', label: 'Cardápio', key: 'cardapio' },
   { href: '/camera', icon: '📸', label: 'Analisar', key: 'camera' },
+  { href: '/treino', icon: '💪', label: 'Treino', key: 'treino' },
   { href: '/chat', icon: '🤖', label: 'NutriBot', key: 'chat' },
-  { href: '/history', icon: '📋', label: 'Histórico', key: 'history' },
-  { href: '/profile', icon: '👤', label: 'Perfil', key: 'profile' },
 ];
 
 export function BottomNav({ active }: { active: string }) {

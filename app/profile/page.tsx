@@ -22,19 +22,39 @@ export default function ProfilePage() {
   const [isActive, setIsActive] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [totalMeals, setTotalMeals] = useState(0);
+  const [totalWorkouts, setTotalWorkouts] = useState(0);
 
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/login'); return; }
+
       const { data: p } = await supabase
         .from('profiles').select('*').eq('id', user.id).single();
       setProfile(p);
       setIsAdmin(!!p?.is_admin);
+
       const { data: sub } = await supabase
         .from('subscriptions').select('*')
         .eq('user_id', user.id).eq('status', 'active').single();
       setIsActive(!!sub);
+
+      // Total de refeições analisadas
+      const { count: mealsCount } = await supabase
+        .from('meals')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id);
+      setTotalMeals(mealsCount ?? 0);
+
+      // Total de treinos concluídos
+      const { count: workoutsCount } = await supabase
+        .from('workouts')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('completed', true);
+      setTotalWorkouts(workoutsCount ?? 0);
+
       setLoading(false);
     }
     load();
@@ -70,7 +90,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Avatar */}
-        <div className="flex flex-col items-center mb-8">
+        <div className="flex flex-col items-center mb-6">
           <div className="w-20 h-20 rounded-full neon-border-blue flex items-center justify-center text-4xl font-black text-cyan-400 mb-3 glow-ring">
             {profile?.full_name?.[0]?.toUpperCase() ?? 'U'}
           </div>
@@ -83,7 +103,19 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {/* Stats */}
+        {/* Conquistas */}
+        <div className="grid grid-cols-2 gap-3 mb-5">
+          <div className="glass-card rounded-xl p-4 text-center border border-gray-800">
+            <p className="text-3xl font-black text-cyan-400">{totalMeals}</p>
+            <p className="text-gray-500 text-xs mt-1">🍽️ Refeições analisadas</p>
+          </div>
+          <div className="glass-card rounded-xl p-4 text-center border border-gray-800">
+            <p className="text-3xl font-black text-orange-400">{totalWorkouts}</p>
+            <p className="text-gray-500 text-xs mt-1">💪 Treinos concluídos</p>
+          </div>
+        </div>
+
+        {/* Stats físicos */}
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Peso', value: profile?.weight ? `${profile.weight}kg` : '—' },
@@ -99,7 +131,7 @@ export default function ProfilePage() {
 
         {/* BMI */}
         {bmi && (
-          <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
+          <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center border border-gray-800">
             <span className="text-gray-400">IMC</span>
             <div className="text-right">
               <span className="text-white font-bold">{bmi}</span>
@@ -109,7 +141,7 @@ export default function ProfilePage() {
         )}
 
         {/* Objetivo */}
-        <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center">
+        <div className="glass-card rounded-xl p-4 mb-4 flex justify-between items-center border border-gray-800">
           <span className="text-gray-400">Objetivo</span>
           <span className="text-white font-semibold">
             {goalLabels[profile?.goal ?? 'maintain']}
@@ -117,7 +149,7 @@ export default function ProfilePage() {
         </div>
 
         {/* Assinatura */}
-        <div className="glass-card rounded-xl p-4 mb-6 flex justify-between items-center">
+        <div className="glass-card rounded-xl p-4 mb-6 flex justify-between items-center border border-gray-800">
           <span className="text-gray-400">Assinatura</span>
           <span className={isActive ? 'text-green-400 font-semibold' : 'text-red-400 font-semibold'}>
             {isActive ? '✅ Ativa' : '❌ Inativa'}
@@ -126,26 +158,36 @@ export default function ProfilePage() {
 
         {/* Ações */}
         <div className="space-y-3">
-          <button onClick={() => router.push('/onboarding')}
+          <button
+            onClick={() => router.push('/compartilhar')}
+            className="w-full py-4 rounded-xl text-pink-400 font-bold border border-pink-900 bg-pink-950/20">
+            📱 Compartilhar minha evolução
+          </button>
+
+          <button
+            onClick={() => router.push('/onboarding')}
             className="neon-btn w-full py-4 rounded-xl text-cyan-400 font-bold">
             ✏️ Editar dados físicos
           </button>
 
           {!isActive && (
-            <button onClick={() => router.push('/subscribe')}
+            <button
+              onClick={() => router.push('/subscribe')}
               className="neon-btn-orange w-full py-4 rounded-xl text-orange-400 font-bold">
               ⚡ Assinar agora
             </button>
           )}
 
           {isAdmin && (
-            <button onClick={() => router.push('/admin')}
+            <button
+              onClick={() => router.push('/admin')}
               className="w-full py-4 rounded-xl text-purple-400 font-bold border border-purple-900 bg-purple-950/20">
               🛡️ Painel Admin
             </button>
           )}
 
-          <button onClick={handleLogout}
+          <button
+            onClick={handleLogout}
             className="w-full py-4 rounded-xl text-red-400 font-semibold border border-red-900">
             Sair da conta
           </button>
