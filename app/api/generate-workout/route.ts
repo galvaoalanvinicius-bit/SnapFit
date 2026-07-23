@@ -2,56 +2,75 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(req: NextRequest) {
   try {
-    const { profile, workout_type, date, previous_workouts } = await req.json();
+    const { profile, workout_type, date, previous_workouts, exercise_progress } = await req.json();
 
     const goalMap: Record<string, string> = {
-      lose_weight: 'emagrecimento — foco em queima calórica, circuitos e cardio',
+      lose_weight: 'emagrecimento — foco em queima calórica e circuitos',
       gain_muscle: 'ganho de massa muscular — foco em hipertrofia com cargas progressivas',
       maintain: 'manutenção — equilíbrio entre força e condicionamento',
     };
 
-    const dayNumber = new Date(date).getDate();
-    const dayOfWeek = new Date(date).toLocaleDateString('pt-BR', { weekday: 'long' });
+    const dayOfWeek = new Date(date).getDay();
+    const dayNames = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 
-    const previousContext = previous_workouts?.length > 0
-      ? `Treinos anteriores recentes: ${previous_workouts.map((w: any) =>
-          `${w.date}: ${w.title} (${w.completed ? 'concluído' : 'não concluído'})`
-        ).join(', ')}`
-      : 'Primeiro treino do usuário';
+    // Definir foco muscular por dia da semana
+    const muscleByDay: Record<number, string> = {
+      0: 'Descanso ou cardio leve',
+      1: 'Peito e Tríceps',
+      2: 'Costas e Bíceps',
+      3: 'Pernas e Glúteos',
+      4: 'Ombros e Core',
+      5: 'Peito, Costas e Braços (treino completo)',
+      6: 'Pernas e Glúteos',
+    };
 
-    const gymExercises = workout_type === 'gym'
-      ? `Use equipamentos comuns de academia: barras, halteres, máquinas de cabo, leg press, smith machine, polia, banco, esteira, bike.`
-      : `Use apenas exercícios sem equipamento: peso corporal, cadeira, parede, toalha. Adaptados para casa.`;
+    const todayFocus = muscleByDay[dayOfWeek];
 
-    const prompt = `Você é um personal trainer especializado criando treinos personalizados.
+    // Progressão de carga automática
+    const progressContext = exercise_progress?.length > 0
+      ? `Histórico de cargas anteriores para progressão automática:
+${exercise_progress.map((p: any) =>
+  `${p.exercise_name}: última carga ${p.weight}kg x ${p.reps} reps x ${p.sets} séries (${p.date})`
+).join('\n')}
+IMPORTANTE: Aumente automaticamente 2.5kg nas cargas dos exercícios que o usuário já fez antes.`
+      : 'Primeiro treino — use cargas iniciais baseadas no peso corporal do usuário.';
+
+    const gymEquipment = workout_type === 'gym'
+      ? 'Use equipamentos comuns: barras, halteres, máquinas de cabo, leg press, smith machine, polia, banco supino, cadeira extensora, mesa flexora, peck deck.'
+      : 'Use apenas peso corporal: flexões, agachamentos, afundos, prancha, burpees, mountain climbers.';
+
+    const prompt = `Você é um personal trainer especializado criando treinos personalizados para brasileiros.
 
 DADOS DO USUÁRIO:
 - Nome: ${profile.full_name?.split(' ')[0]}
 - Objetivo: ${goalMap[profile.goal] ?? 'saúde'}
 - Peso: ${profile.weight}kg | Altura: ${profile.height}cm | Idade: ${profile.age} anos
 - Sexo: ${profile.gender === 'male' ? 'Masculino' : 'Feminino'}
-- Tipo de treino: ${workout_type === 'gym' ? 'Academia' : 'Em casa'}
-- Dia: ${dayOfWeek} (dia ${dayNumber})
-- ${previousContext}
+- Tipo: ${workout_type === 'gym' ? 'Academia' : 'Em casa'}
+- Dia: ${dayNames[dayOfWeek]} — Foco de hoje: ${todayFocus}
+
+PROGRESSÃO AUTOMÁTICA DE CARGA:
+${progressContext}
+
+EQUIPAMENTOS:
+${gymEquipment}
 
 REGRAS:
-- Treino de 60 minutos
-- ${gymExercises}
-- Varie os grupos musculares baseado no dia (${dayNumber} par = membros inferiores, ímpar = superiores + core)
-- Para emagrecimento: inclua circuitos e exercícios compostos
-- Para ganho de massa: series de 8-12 reps com cargas progressivas
-- Para manutenção: equilíbrio entre força e resistência
-- Sugira cargas iniciais baseadas no peso do usuário
-- Seja motivador e conversacional
+- Treino de 60 minutos com 6-8 exercícios focados em: ${todayFocus}
+- Para emagrecimento: séries de 15-20 reps, descanso curto (30-45s), circuitos
+- Para ganho de massa: séries de 8-12 reps, descanso maior (60-90s), cargas pesadas
+- Para manutenção: séries de 12-15 reps, descanso médio (45-60s)
+- Aumente as cargas automaticamente baseado no histórico
+- Seja motivador e conversacional com ${profile.full_name?.split(' ')[0]}
 
 Responda SOMENTE em JSON válido:
 {
-  "title": "nome do treino de hoje",
-  "motivation": "mensagem motivadora personalizada para ${profile.full_name?.split(' ')[0]}, máximo 2 frases animadas",
-  "focus": "grupo muscular foco de hoje",
+  "title": "nome do treino — ${dayNames[dayOfWeek]}: ${todayFocus}",
+  "motivation": "mensagem motivadora personalizada de 2 frases para ${profile.full_name?.split(' ')[0]}",
+  "focus": "${todayFocus}",
   "duration_minutes": 60,
   "calories_estimate": 0,
-  "warmup": "descrição do aquecimento de 5 min",
+  "warmup": "descrição do aquecimento de 5 min específico para ${todayFocus}",
   "exercises": [
     {
       "name": "nome do exercício",
@@ -60,16 +79,14 @@ Responda SOMENTE em JSON válido:
       "reps": "10-12",
       "weight": 20.0,
       "rest_seconds": 60,
-      "instructions": "como fazer o exercício passo a passo em 2-3 frases",
-      "tip": "dica importante de execução ou segurança",
+      "instructions": "como fazer em 2-3 frases claras",
+      "tip": "dica de execução importante",
       "order_index": 1
     }
   ],
-  "cooldown": "descrição do alongamento final de 5 min",
-  "coach_message": "mensagem final do coach para motivar a conclusão"
-}
-
-Inclua 6-8 exercícios principais. Para academia inclua máquinas específicas.`;
+  "cooldown": "alongamento final de 5 min para ${todayFocus}",
+  "coach_message": "mensagem final motivadora do coach"
+}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

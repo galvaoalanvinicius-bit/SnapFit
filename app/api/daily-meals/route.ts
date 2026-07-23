@@ -10,75 +10,83 @@ export async function POST(req: NextRequest) {
       maintain: 'manutenção de peso — alimentação equilibrada e variada',
     };
 
-    const today = new Date(date);
-    const dayOfWeek = today.toLocaleDateString('pt-BR', { weekday: 'long' });
-    const dayNumber = today.getDate();
+    const dayNumber = new Date(date).getDate();
+    const dayOfWeek = new Date(date).toLocaleDateString('pt-BR', { weekday: 'long' });
 
-    // Calcular meta calórica baseada nos dados do usuário
-    const gender = profile.gender === 'male' ? 'male' : 'female';
-    const bmr = gender === 'male'
+    const bmr = profile.gender === 'male'
       ? 88.36 + 13.4 * profile.weight + 4.8 * profile.height - 5.7 * profile.age
       : 447.6 + 9.25 * profile.weight + 3.1 * profile.height - 4.3 * profile.age;
     const tdee = Math.round(bmr * 1.55);
-    const calorieGoal = profile.goal === 'lose_weight'
-      ? tdee - 500
-      : profile.goal === 'gain_muscle'
-      ? tdee + 300
-      : tdee;
+    const calorieGoal = profile.goal === 'lose_weight' ? tdee - 500
+      : profile.goal === 'gain_muscle' ? tdee + 300 : tdee;
 
-    const prompt = `Você é um nutricionista fitness especializado criando um plano alimentar personalizado.
+    const prefs = profile.food_preferences ?? {};
+    const proteins = prefs.proteins?.length > 0
+      ? `Use APENAS estas proteínas: ${prefs.proteins.join(', ')}`
+      : 'Use proteínas acessíveis como frango, ovo e atum';
+    const carbs = prefs.carbs?.length > 0
+      ? `Use APENAS estes carboidratos: ${prefs.carbs.join(', ')}`
+      : 'Use carboidratos comuns como arroz e batata doce';
+    const veggies = prefs.veggies?.length > 0
+      ? `Priorize estes vegetais: ${prefs.veggies.join(', ')}`
+      : 'Use vegetais comuns e acessíveis';
+    const restrictions = prefs.restrictions?.length > 0 && !prefs.restrictions.includes('sem_restricao')
+      ? `Restrições OBRIGATÓRIAS: ${prefs.restrictions.join(', ')}`
+      : 'Sem restrições alimentares';
+
+    const prompt = `Você é um nutricionista fitness especializado em alimentação acessível para brasileiros.
 
 DADOS DO USUÁRIO:
-- Nome: ${profile.full_name}
-- Objetivo: ${goalMap[profile.goal] ?? 'saúde equilibrada'}
+- Nome: ${profile.full_name?.split(' ')[0]}
+- Objetivo: ${goalMap[profile.goal] ?? 'saúde'}
 - Peso: ${profile.weight}kg | Altura: ${profile.height}cm | Idade: ${profile.age} anos
-- Sexo: ${gender === 'male' ? 'Masculino' : 'Feminino'}
-- Meta calórica diária: ${calorieGoal} kcal
-- Dia da semana: ${dayOfWeek} (dia ${dayNumber} do mês)
+- Sexo: ${profile.gender === 'male' ? 'Masculino' : 'Feminino'}
+- Meta calórica: ${calorieGoal} kcal
+- Dia: ${dayOfWeek} (dia ${dayNumber})
 
-IMPORTANTE: Use o número do dia (${dayNumber}) para variar as receitas — cada dia deve ter receitas DIFERENTES e criativas. Não repita as mesmas receitas de dias anteriores.
+PREFERÊNCIAS ALIMENTARES OBRIGATÓRIAS:
+- ${proteins}
+- ${carbs}
+- ${veggies}
+- ${restrictions}
 
-Crie um cardápio completo para hoje com 4 refeições. Responda SOMENTE em JSON válido:
+IMPORTANTE: Use APENAS os alimentos que o usuário selecionou. Não inclua alimentos caros ou difíceis de encontrar.
+Varie as receitas usando o número do dia (${dayNumber}) para sempre ser diferente.
+
+Crie um cardápio com 5 refeições. Responda SOMENTE em JSON válido:
 {
-  "greeting": "mensagem motivadora personalizada para ${profile.full_name?.split(' ')[0]} sobre o cardápio de hoje, máximo 2 frases",
+  "greeting": "mensagem motivadora personalizada de 2 frases",
   "total_calories": 0,
   "meals": [
     {
       "meal_type": "cafe",
-      "meal_name": "nome da refeição",
+      "meal_name": "nome",
       "calories": 0,
       "proteins": 0.0,
       "carbs": 0.0,
       "fat": 0.0,
       "prep_time": "X min",
-      "difficulty": "Fácil/Médio",
-      "description": "descrição apetitosa de 1 frase",
-      "ingredients": ["ingrediente com quantidade", "..."],
-      "steps": ["passo 1", "passo 2", "..."],
-      "tip": "dica especial do nutricionista"
+      "difficulty": "Fácil",
+      "description": "descrição apetitosa",
+      "ingredients": ["ingrediente com quantidade"],
+      "steps": ["passo 1", "passo 2"],
+      "tip": "dica do nutricionista"
     },
-    {
-      "meal_type": "almoco",
-      ...
-    },
-    {
-      "meal_type": "lanche",
-      ...
-    },
-    {
-      "meal_type": "janta",
-      ...
-    }
+    { "meal_type": "lanche_manha", ... },
+    { "meal_type": "almoco", ... },
+    { "meal_type": "lanche_tarde", ... },
+    { "meal_type": "janta", ... }
   ]
 }
 
-Distribua as calorias assim:
-- Café da manhã: 25% das calorias
-- Almoço: 35% das calorias
-- Lanche: 15% das calorias
-- Janta: 25% das calorias
+Distribua as calorias:
+- Café da manhã: 20%
+- Lanche da manhã: 10%
+- Almoço: 35%
+- Lanche da tarde: 10%
+- Janta: 25%
 
-Seja criativo, use ingredientes variados e receitas gostosas que a pessoa vai querer fazer!`;
+Use ingredientes baratos e acessíveis no Brasil!`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -88,7 +96,7 @@ Seja criativo, use ingredientes variados e receitas gostosas que a pessoa vai qu
       },
       body: JSON.stringify({
         model: 'gpt-4o',
-        max_tokens: 3000,
+        max_tokens: 4000,
         temperature: 0.9,
         messages: [{ role: 'user', content: prompt }],
         response_format: { type: 'json_object' },

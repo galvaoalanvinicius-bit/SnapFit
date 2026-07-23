@@ -29,11 +29,12 @@ interface DailyPlan {
 }
 
 const mealLabels: Record<string, { label: string; icon: string; time: string }> = {
-  cafe: { label: 'Café da manhã', icon: '☀️', time: '07:00' },
-  almoco: { label: 'Almoço', icon: '🌤️', time: '12:00' },
-  lanche: { label: 'Lanche', icon: '🍎', time: '15:30' },
-  janta: { label: 'Janta', icon: '🌙', time: '19:00' },
-};
+    cafe: { label: 'Café da manhã', icon: '☀️', time: '07:00' },
+    lanche_manha: { label: 'Lanche da manhã', icon: '🍎', time: '10:00' },
+    almoco: { label: 'Almoço', icon: '🌤️', time: '12:30' },
+    lanche_tarde: { label: 'Lanche da tarde', icon: '🥜', time: '15:30' },
+    janta: { label: 'Janta', icon: '🌙', time: '19:00' },
+  };
 
 export default function CardapioPage() {
   const router = useRouter();
