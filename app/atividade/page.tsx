@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation';
 import { supabase, uploadMealImage } from '@/lib/supabase';
 import { BottomNav } from '@/components/BottomNav';
 import type { Profile } from '@/lib/types';
-import maplibregl from 'maplibre-gl';
+import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 const ACTIVITIES = [

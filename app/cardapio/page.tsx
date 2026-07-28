@@ -7,7 +7,7 @@ import type { Profile } from '@/lib/types';
 
 interface DailyMeal {
   id?: string;
-  meal_type: 'cafe' | 'almoco' | 'lanche' | 'janta';
+  meal_type: 'cafe' | 'lanche_manha' | 'almoco' | 'lanche_tarde' | 'janta';
   meal_name: string;
   calories: number;
   proteins: number;
@@ -29,12 +29,14 @@ interface DailyPlan {
 }
 
 const mealLabels: Record<string, { label: string; icon: string; time: string }> = {
-    cafe: { label: 'Café da manhã', icon: '☀️', time: '07:00' },
-    lanche_manha: { label: 'Lanche da manhã', icon: '🍎', time: '10:00' },
-    almoco: { label: 'Almoço', icon: '🌤️', time: '12:30' },
-    lanche_tarde: { label: 'Lanche da tarde', icon: '🥜', time: '15:30' },
-    janta: { label: 'Janta', icon: '🌙', time: '19:00' },
-  };
+  cafe: { label: 'Café da manhã', icon: '☀️', time: '07:00' },
+  lanche_manha: { label: 'Lanche da manhã', icon: '🍎', time: '10:00' },
+  almoco: { label: 'Almoço', icon: '🌤️', time: '12:30' },
+  lanche_tarde: { label: 'Lanche da tarde', icon: '🥜', time: '15:30' },
+  janta: { label: 'Janta', icon: '🌙', time: '19:00' },
+};
+
+const MEAL_ORDER = ['cafe', 'lanche_manha', 'almoco', 'lanche_tarde', 'janta'];
 
 export default function CardapioPage() {
   const router = useRouter();
@@ -49,7 +51,7 @@ export default function CardapioPage() {
 
   const today = new Date().toISOString().split('T')[0];
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
-    weekday: 'long', day: 'numeric', month: 'long'
+    weekday: 'long', day: 'numeric', month: 'long',
   });
 
   useEffect(() => {
@@ -72,44 +74,57 @@ export default function CardapioPage() {
         setCalorieGoal(goal);
       }
 
-      // Buscar cardápio do dia
-      const { data: existingMeals } = await supabase
-        .from('daily_meals')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .order('created_at', { ascending: true });
-
-      if (existingMeals && existingMeals.length > 0) {
-        const completed = existingMeals
-          .filter(m => m.completed)
-          .reduce((sum: number, m: any) => sum + m.calories, 0);
-        setCaloriesConsumed(completed);
-
-        setPlan({
-          greeting: `Bom dia! Aqui está seu cardápio personalizado para hoje! 💪`,
-          total_calories: existingMeals.reduce((sum: number, m: any) => sum + m.calories, 0),
-          meals: existingMeals.map((m: any) => ({
-            id: m.id,
-            meal_type: m.meal_type,
-            meal_name: m.meal_name,
-            calories: m.calories,
-            proteins: m.proteins,
-            carbs: m.carbs,
-            fat: m.fat,
-            ingredients: m.ingredients,
-            steps: m.steps,
-            tip: m.tip,
-            completed: m.completed,
-          })),
-        });
-      } else {
-        await generatePlan(user.id, p);
-      }
+      await fetchMeals(user.id, p);
       setLoading(false);
     }
     load();
   }, [router]);
+
+  async function fetchMeals(uid: string, p: Profile | null) {
+    const { data: existingMeals } = await supabase
+      .from('daily_meals')
+      .select('*')
+      .eq('user_id', uid)
+      .eq('date', today)
+      .order('created_at', { ascending: true });
+
+    if (existingMeals && existingMeals.length >= 5) {
+      // Ordenar na ordem correta
+      const ordered = MEAL_ORDER.map(type =>
+        existingMeals.find(m => m.meal_type === type)
+      ).filter(Boolean) as any[];
+
+      const consumed = ordered
+        .filter(m => m.completed)
+        .reduce((sum: number, m: any) => sum + m.calories, 0);
+      setCaloriesConsumed(consumed);
+
+      setPlan({
+        greeting: `Aqui está seu cardápio de hoje! 💪`,
+        total_calories: ordered.reduce((sum: number, m: any) => sum + m.calories, 0),
+        meals: ordered.map((m: any) => ({
+          id: m.id,
+          meal_type: m.meal_type,
+          meal_name: m.meal_name,
+          calories: m.calories,
+          proteins: m.proteins,
+          carbs: m.carbs,
+          fat: m.fat,
+          ingredients: m.ingredients ?? [],
+          steps: m.steps ?? [],
+          tip: m.tip,
+          completed: m.completed,
+        })),
+      });
+    } else {
+      // Deletar qualquer refeição parcial do dia e gerar novo
+      if (existingMeals && existingMeals.length > 0) {
+        await supabase.from('daily_meals').delete()
+          .eq('user_id', uid).eq('date', today);
+      }
+      await generatePlan(uid, p);
+    }
+  }
 
   async function generatePlan(uid: string, p: Profile | null) {
     if (!p) return;
@@ -124,28 +139,40 @@ export default function CardapioPage() {
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // Salvar no banco
+      // Inserir as 5 refeições uma por uma
+      const savedMeals = [];
       for (const meal of data.meals) {
-        await supabase.from('daily_meals').upsert({
-          user_id: uid,
-          date: today,
-          meal_type: meal.meal_type,
-          meal_name: meal.meal_name,
-          calories: meal.calories,
-          proteins: meal.proteins,
-          carbs: meal.carbs,
-          fat: meal.fat,
-          ingredients: meal.ingredients,
-          steps: meal.steps,
-          tip: meal.tip ?? null,
-          completed: false,
-        });
+        const { data: saved, error } = await supabase
+          .from('daily_meals')
+          .insert({
+            user_id: uid,
+            date: today,
+            meal_type: meal.meal_type,
+            meal_name: meal.meal_name,
+            calories: meal.calories,
+            proteins: meal.proteins,
+            carbs: meal.carbs,
+            fat: meal.fat,
+            ingredients: meal.ingredients,
+            steps: meal.steps,
+            tip: meal.tip ?? null,
+            completed: false,
+          })
+          .select()
+          .single();
+
+        if (!error && saved) savedMeals.push(saved);
       }
+
+      // Ordenar na ordem correta
+      const ordered = MEAL_ORDER.map(type =>
+        savedMeals.find((m: any) => m.meal_type === type)
+      ).filter(Boolean) as any[];
 
       setPlan({
         greeting: data.greeting,
         total_calories: data.total_calories,
-        meals: data.meals.map((m: any) => ({ ...m, completed: false })),
+        meals: ordered.map((m: any) => ({ ...m, completed: false })),
       });
       setCaloriesConsumed(0);
     } catch (e: any) {
@@ -181,13 +208,8 @@ export default function CardapioPage() {
   async function regeneratePlan() {
     if (!userId || !profile) return;
     if (!confirm('Gerar um novo cardápio para hoje?')) return;
-
-    // Deletar cardápio atual
     await supabase.from('daily_meals')
-      .delete()
-      .eq('user_id', userId)
-      .eq('date', today);
-
+      .delete().eq('user_id', userId).eq('date', today);
     setPlan(null);
     setCaloriesConsumed(0);
     await generatePlan(userId, profile);
@@ -204,7 +226,7 @@ export default function CardapioPage() {
       </p>
       {generating && (
         <p className="text-gray-400 text-sm text-center px-8">
-          A IA está criando receitas únicas para você baseadas no seu objetivo e perfil
+          A IA está criando 5 receitas únicas baseadas nas suas preferências e objetivo
         </p>
       )}
       <div className="flex gap-2 mt-2">
@@ -243,13 +265,15 @@ export default function CardapioPage() {
               <p className={`text-2xl font-bold ${remaining >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                 {Math.abs(remaining)}
               </p>
-              <p className="text-gray-500 text-xs">{remaining >= 0 ? 'kcal livres' : 'kcal acima'}</p>
+              <p className="text-gray-500 text-xs">{remaining >= 0 ? 'kcal livres' : 'acima'}</p>
             </div>
           </div>
           <div className="h-3 bg-gray-900 rounded-full overflow-hidden">
             <div
               className={`h-3 rounded-full transition-all duration-500 ${
-                progress > 100 ? 'bg-red-500' : 'bg-gradient-to-r from-cyan-400 to-purple-500'
+                progress > 100
+                  ? 'bg-red-500'
+                  : 'bg-gradient-to-r from-cyan-400 to-purple-500'
               }`}
               style={{ width: `${Math.min(progress, 100)}%` }}
             />
@@ -271,26 +295,23 @@ export default function CardapioPage() {
                 value: Math.round(plan.meals.filter(m => m.completed).reduce((s, m) => s + m.proteins, 0)),
                 total: Math.round(plan.meals.reduce((s, m) => s + m.proteins, 0)),
                 color: 'text-blue-400',
-                unit: 'g',
               },
               {
                 label: 'Carboidratos',
                 value: Math.round(plan.meals.filter(m => m.completed).reduce((s, m) => s + m.carbs, 0)),
                 total: Math.round(plan.meals.reduce((s, m) => s + m.carbs, 0)),
                 color: 'text-yellow-400',
-                unit: 'g',
               },
               {
                 label: 'Gorduras',
                 value: Math.round(plan.meals.filter(m => m.completed).reduce((s, m) => s + m.fat, 0)),
                 total: Math.round(plan.meals.reduce((s, m) => s + m.fat, 0)),
                 color: 'text-red-400',
-                unit: 'g',
               },
             ].map(macro => (
               <div key={macro.label} className="glass-card rounded-xl p-3 text-center border border-gray-800">
-                <p className={`font-bold text-base ${macro.color}`}>
-                  {macro.value}<span className="text-xs">/{macro.total}{macro.unit}</span>
+                <p className={`font-bold text-sm ${macro.color}`}>
+                  {macro.value}<span className="text-xs text-gray-600">/{macro.total}g</span>
                 </p>
                 <p className="text-gray-600 text-xs mt-1">{macro.label}</p>
               </div>
@@ -301,21 +322,18 @@ export default function CardapioPage() {
         {/* Refeições */}
         <div className="space-y-3 mb-5">
           {plan?.meals.map((meal, i) => {
-            const meta = mealLabels[meal.meal_type];
+            const meta = mealLabels[meal.meal_type] ?? { label: meal.meal_type, icon: '🍽️', time: '' };
             const isExpanded = expandedMeal === meal.meal_type;
 
             return (
-              <div key={i} className={`rounded-2xl border overflow-hidden transition-all ${
+              <div key={meal.meal_type} className={`rounded-2xl border overflow-hidden transition-all ${
                 meal.completed
                   ? 'border-green-900 bg-green-950/10'
                   : 'border-gray-800 glass-card'
               }`}>
-
-                {/* Header da refeição */}
                 <button
                   className="w-full p-4 text-left"
-                  onClick={() => setExpandedMeal(isExpanded ? null : meal.meal_type)}
-                >
+                  onClick={() => setExpandedMeal(isExpanded ? null : meal.meal_type)}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl ${
@@ -333,9 +351,7 @@ export default function CardapioPage() {
                       <p className="text-gray-600 text-xs">kcal</p>
                     </div>
                   </div>
-
-                  {/* Macros resumidos */}
-                  <div className="flex gap-3 mt-3">
+                  <div className="flex gap-3 mt-2">
                     <span className="text-xs text-blue-400">P: {meal.proteins}g</span>
                     <span className="text-xs text-yellow-400">C: {meal.carbs}g</span>
                     <span className="text-xs text-red-400">G: {meal.fat}g</span>
@@ -345,17 +361,14 @@ export default function CardapioPage() {
                   </div>
                 </button>
 
-                {/* Conteúdo expandido */}
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-gray-800 pt-4 space-y-4">
-
                     {meal.description && (
                       <p className="text-gray-300 text-sm leading-relaxed italic">
                         "{meal.description}"
                       </p>
                     )}
 
-                    {/* Ingredientes */}
                     <div>
                       <p className="text-white font-bold text-sm mb-2">🛒 Ingredientes</p>
                       <div className="space-y-1.5">
@@ -368,7 +381,6 @@ export default function CardapioPage() {
                       </div>
                     </div>
 
-                    {/* Modo de preparo */}
                     <div>
                       <p className="text-white font-bold text-sm mb-2">👨‍🍳 Modo de preparo</p>
                       <div className="space-y-2">
@@ -383,14 +395,12 @@ export default function CardapioPage() {
                       </div>
                     </div>
 
-                    {/* Dica */}
                     {meal.tip && (
                       <div className="bg-yellow-950/30 border border-yellow-800/50 rounded-xl p-3">
                         <p className="text-yellow-300 text-sm">💡 {meal.tip}</p>
                       </div>
                     )}
 
-                    {/* Botão marcar como feito */}
                     <button
                       onClick={() => toggleCompleted(meal)}
                       className={`w-full py-3 rounded-xl font-bold text-sm transition-all ${
@@ -410,20 +420,16 @@ export default function CardapioPage() {
           })}
         </div>
 
-        {/* Botão gerar novo cardápio */}
-        <button
-          onClick={regeneratePlan}
+        <button onClick={regeneratePlan}
           className="w-full py-3 rounded-xl text-gray-400 text-sm border border-gray-800 mb-3">
           🔄 Gerar novo cardápio para hoje
         </button>
 
-        <button
-          onClick={() => router.push('/chat')}
+        <button onClick={() => router.push('/chat')}
           className="neon-btn w-full py-3 rounded-xl text-cyan-400 font-bold text-sm">
           🤖 Pedir ajuste ao NutriBot
         </button>
       </div>
-
       <BottomNav active="cardapio" />
     </div>
   );

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase';
 import { BottomNav } from '@/components/BottomNav';
@@ -47,6 +47,34 @@ const muscleColors: Record<string, string> = {
   'Glúteos': 'text-pink-400 bg-pink-950',
 };
 
+// GIFs de demonstração por nome de exercício
+const exerciseGifs: Record<string, string> = {
+  'Supino Reto': 'https://i.imgur.com/bench-press.gif',
+  'Agachamento': 'https://i.imgur.com/squat.gif',
+  'Rosca Direta': 'https://i.imgur.com/bicep-curl.gif',
+  'Leg Press': 'https://i.imgur.com/leg-press.gif',
+  'Puxada Alta': 'https://i.imgur.com/lat-pulldown.gif',
+  'Desenvolvimento': 'https://i.imgur.com/shoulder-press.gif',
+  'Flexão': 'https://i.imgur.com/pushup.gif',
+  'Agachamento Livre': 'https://i.imgur.com/bodyweight-squat.gif',
+  'Prancha': 'https://i.imgur.com/plank.gif',
+  'Abdominal': 'https://i.imgur.com/crunch.gif',
+  'Burpee': 'https://i.imgur.com/burpee.gif',
+  'Afundo': 'https://i.imgur.com/lunge.gif',
+};
+
+// Emojis representando os exercícios como fallback visual
+const exerciseEmojis: Record<string, string> = {
+  'Peito': '🏋️',
+  'Costas': '🔙',
+  'Pernas': '🦵',
+  'Ombros': '💪',
+  'Bíceps': '💪',
+  'Tríceps': '💪',
+  'Core': '🎯',
+  'Glúteos': '🍑',
+};
+
 export default function TreinoPage() {
   const router = useRouter();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -59,9 +87,13 @@ export default function TreinoPage() {
   const [showFeedback, setShowFeedback] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [rating, setRating] = useState(0);
+  const [caloriesBurned, setCaloriesBurned] = useState(0);
+
+  // Timer de descanso por série
   const [restTimer, setRestTimer] = useState<number | null>(null);
   const [timerActive, setTimerActive] = useState(false);
-  const [caloriesBurned, setCaloriesBurned] = useState(0);
+  const [currentSet, setCurrentSet] = useState<{ exercise: string; set: number; total: number } | null>(null);
+  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -75,7 +107,6 @@ export default function TreinoPage() {
         .from('profiles').select('*').eq('id', user.id).single();
       setProfile(p);
 
-      // Buscar treino do dia
       const { data: existingWorkout } = await supabase
         .from('workouts')
         .select('*, workout_exercises(*)')
@@ -95,7 +126,6 @@ export default function TreinoPage() {
           focus: '',
           duration_minutes: existingWorkout.duration_minutes,
           calories_estimate: existingWorkout.calories_burned,
-          calories_burned: existingWorkout.calories_burned,
           warmup: '',
           exercises: exercises.map((e: any) => ({
             id: e.id,
@@ -124,20 +154,37 @@ export default function TreinoPage() {
 
   // Timer de descanso
   useEffect(() => {
-    let interval: NodeJS.Timeout;
     if (timerActive && restTimer !== null && restTimer > 0) {
-      interval = setInterval(() => {
+      timerIntervalRef.current = setInterval(() => {
         setRestTimer(prev => {
           if (prev === null || prev <= 1) {
             setTimerActive(false);
+            setCurrentSet(null);
+            if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
             return null;
           }
           return prev - 1;
         });
       }, 1000);
     }
-    return () => clearInterval(interval);
-  }, [timerActive, restTimer]);
+    return () => {
+      if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    };
+  }, [timerActive]);
+
+  function startRestTimer(exercise: Exercise, setNumber: number) {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    setRestTimer(60); // 1 minuto fixo
+    setTimerActive(true);
+    setCurrentSet({ exercise: exercise.name, set: setNumber, total: exercise.sets });
+  }
+
+  function skipTimer() {
+    if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
+    setTimerActive(false);
+    setRestTimer(null);
+    setCurrentSet(null);
+  }
 
   async function generateWorkout(type: 'gym' | 'home') {
     if (!profile || !userId) return;
@@ -150,7 +197,14 @@ export default function TreinoPage() {
         .select('date, title, completed')
         .eq('user_id', userId)
         .order('date', { ascending: false })
-        .limit(5);
+        .limit(7);
+
+      const { data: exerciseProgress } = await supabase
+        .from('exercise_progress')
+        .select('*')
+        .eq('user_id', userId)
+        .order('date', { ascending: false })
+        .limit(20);
 
       const res = await fetch('/api/generate-workout', {
         method: 'POST',
@@ -158,13 +212,13 @@ export default function TreinoPage() {
         body: JSON.stringify({
           profile, workout_type: type, date: today,
           previous_workouts: prevWorkouts ?? [],
+          exercise_progress: exerciseProgress ?? [],
         }),
       });
 
       const data = await res.json();
       if (data.error) throw new Error(data.error);
 
-      // Salvar treino no banco
       const { data: savedWorkout, error: workoutError } = await supabase
         .from('workouts')
         .insert({
@@ -181,7 +235,6 @@ export default function TreinoPage() {
 
       if (workoutError) throw workoutError;
 
-      // Salvar exercícios
       const exercisesToSave = data.exercises.map((e: any) => ({
         workout_id: savedWorkout.id,
         name: e.name,
@@ -189,7 +242,7 @@ export default function TreinoPage() {
         sets: e.sets,
         reps: e.reps,
         weight: e.weight ?? null,
-        rest_seconds: e.rest_seconds,
+        rest_seconds: 60,
         instructions: e.instructions,
         tip: e.tip ?? null,
         completed: false,
@@ -205,9 +258,9 @@ export default function TreinoPage() {
       setWorkout({
         id: savedWorkout.id,
         ...data,
-        exercises: (savedExercises ?? []).map((e: any) => ({
-          ...e, completed: false,
-        })).sort((a: any, b: any) => a.order_index - b.order_index),
+        exercises: (savedExercises ?? [])
+          .sort((a: any, b: any) => a.order_index - b.order_index)
+          .map((e: any) => ({ ...e, completed: false })),
         completed: false,
       });
     } catch (e: any) {
@@ -225,7 +278,6 @@ export default function TreinoPage() {
       .update({ completed: newCompleted })
       .eq('id', exercise.id);
 
-    // Salvar progressão de carga
     if (newCompleted && exercise.weight && userId) {
       await supabase.from('exercise_progress').insert({
         user_id: userId,
@@ -235,6 +287,8 @@ export default function TreinoPage() {
         sets: exercise.sets,
         date: today,
       });
+      // Iniciar timer de 1 minuto ao concluir exercício
+      startRestTimer(exercise, exercise.sets);
     }
 
     setWorkout(prev => {
@@ -246,42 +300,31 @@ export default function TreinoPage() {
         ),
       };
     });
-
-    // Iniciar timer de descanso
-    if (newCompleted) {
-      setRestTimer(exercise.rest_seconds);
-      setTimerActive(true);
-    }
-  }
-
-  async function completeWorkout() {
-    if (!workout?.id || !userId) return;
-    setShowFeedback(true);
   }
 
   async function saveFeedback() {
     if (!workout?.id || !userId) return;
 
-    const completedCalories = workout.completed ? 0 : caloriesBurned;
-
     await supabase.from('workouts').update({
       completed: true,
       feedback,
       difficulty_rating: rating,
-      calories_burned: completedCalories,
+      calories_burned: caloriesBurned,
     }).eq('id', workout.id);
 
-    // Atualizar calorias gastas — criar entrada em manual_activities
+    // Salvar em manual_activities para atualizar barra do dashboard
     await supabase.from('manual_activities').insert({
       user_id: userId,
       activity_type: workoutType === 'gym' ? 'Academia' : 'Treino em casa',
       duration_minutes: workout.duration_minutes,
-      calories_burned: completedCalories,
+      calories_burned: caloriesBurned,
       date: today,
       notes: workout.title,
     });
 
-    setWorkout(prev => prev ? { ...prev, completed: true, feedback, difficulty_rating: rating } : prev);
+    setWorkout(prev => prev ? {
+      ...prev, completed: true, feedback, difficulty_rating: rating,
+    } : prev);
     setShowFeedback(false);
   }
 
@@ -295,7 +338,6 @@ export default function TreinoPage() {
     </div>
   );
 
-  // Tela de escolha de tipo de treino
   if (!workout && !generating) return (
     <div className="min-h-screen bg-black pb-24">
       <div className="max-w-sm mx-auto p-5">
@@ -307,42 +349,37 @@ export default function TreinoPage() {
           </p>
         </div>
 
-        <div className="space-y-4 mt-4">
-          <button
-            onClick={() => generateWorkout('gym')}
-            className="w-full glass-card rounded-2xl p-6 border border-gray-800 text-left hover:border-cyan-800 transition-all">
+        <div className="space-y-4">
+          <button onClick={() => generateWorkout('gym')}
+            className="w-full glass-card rounded-2xl p-6 border border-gray-800 text-left">
             <div className="text-4xl mb-3">🏋️</div>
             <p className="text-white font-bold text-lg">Academia</p>
             <p className="text-gray-400 text-sm mt-1">
-              Treino com máquinas, barras e halteres. Exercícios otimizados para seu objetivo com progressão de carga.
+              Treino com máquinas. Timer de 1 minuto automático entre séries. Progressão de carga automática.
             </p>
-            <div className="flex gap-2 mt-3">
+            <div className="flex gap-2 mt-3 flex-wrap">
               <span className="text-xs bg-cyan-950 text-cyan-400 px-2 py-1 rounded-full">60 min</span>
               <span className="text-xs bg-purple-950 text-purple-400 px-2 py-1 rounded-full">6-8 exercícios</span>
-              <span className="text-xs bg-green-950 text-green-400 px-2 py-1 rounded-full">Progressão</span>
+              <span className="text-xs bg-green-950 text-green-400 px-2 py-1 rounded-full">⏱️ Timer automático</span>
             </div>
           </button>
 
-          <button
-            onClick={() => generateWorkout('home')}
-            className="w-full glass-card rounded-2xl p-6 border border-gray-800 text-left hover:border-orange-800 transition-all">
+          <button onClick={() => generateWorkout('home')}
+            className="w-full glass-card rounded-2xl p-6 border border-gray-800 text-left">
             <div className="text-4xl mb-3">🏠</div>
             <p className="text-white font-bold text-lg">Em casa</p>
             <p className="text-gray-400 text-sm mt-1">
-              Treino funcional sem equipamentos. Usando o peso do próprio corpo para resultados efetivos.
+              Treino funcional sem equipamentos. Peso corporal para resultados efetivos.
             </p>
             <div className="flex gap-2 mt-3">
               <span className="text-xs bg-orange-950 text-orange-400 px-2 py-1 rounded-full">60 min</span>
               <span className="text-xs bg-yellow-950 text-yellow-400 px-2 py-1 rounded-full">Sem equipamento</span>
-              <span className="text-xs bg-red-950 text-red-400 px-2 py-1 rounded-full">Funcional</span>
             </div>
           </button>
         </div>
 
         <div className="mt-6">
-          <p className="text-gray-500 text-xs text-center mb-3">Ou registre uma atividade manual</p>
-          <button
-            onClick={() => router.push('/atividade')}
+          <button onClick={() => router.push('/atividade')}
             className="w-full border border-gray-800 py-3 rounded-xl text-gray-400 text-sm">
             🏃 Registrar corrida / caminhada / bike
           </button>
@@ -352,17 +389,14 @@ export default function TreinoPage() {
     </div>
   );
 
-  // Tela de geração
   if (generating) return (
     <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-4 p-8">
       <div className="text-5xl animate-bounce">💪</div>
-      <p className="text-white font-bold text-xl text-center">
-        Criando seu treino personalizado...
-      </p>
+      <p className="text-white font-bold text-xl text-center">Criando seu treino...</p>
       <p className="text-gray-400 text-sm text-center">
-        O personal trainer virtual está montando o treino perfeito para {profile?.full_name?.split(' ')[0]} baseado no seu objetivo e histórico
+        Analisando histórico e ajustando cargas automaticamente para {profile?.full_name?.split(' ')[0]}
       </p>
-      <div className="flex gap-2 mt-2">
+      <div className="flex gap-2">
         <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '0ms' }} />
         <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '150ms' }} />
         <div className="w-2 h-2 rounded-full bg-cyan-400 animate-bounce" style={{ animationDelay: '300ms' }} />
@@ -384,11 +418,10 @@ export default function TreinoPage() {
               <h1 className="text-xl font-bold text-white mt-1">{workout?.title}</h1>
             </div>
             <div className="text-right">
-              <p className="text-cyan-400 font-bold">{caloriesBurned}</p>
-              <p className="text-gray-600 text-xs">kcal estimado</p>
+              <p className="text-orange-400 font-bold">{caloriesBurned}</p>
+              <p className="text-gray-600 text-xs">kcal 🔥</p>
             </div>
           </div>
-
           {workout?.motivation && (
             <div className="mt-3 bg-cyan-950/30 border border-cyan-900 rounded-xl p-3">
               <p className="text-cyan-300 text-sm leading-relaxed">💬 {workout.motivation}</p>
@@ -396,24 +429,35 @@ export default function TreinoPage() {
           )}
         </div>
 
-        {/* Timer de descanso */}
+        {/* Timer de descanso entre séries */}
         {timerActive && restTimer !== null && (
-          <div className="bg-orange-950 border border-orange-800 rounded-2xl p-4 mb-4 text-center">
-            <p className="text-orange-400 text-sm font-semibold mb-1">⏱️ Descanso</p>
-            <p className="text-white text-4xl font-black">{restTimer}s</p>
-            <button
-              onClick={() => { setTimerActive(false); setRestTimer(null); }}
-              className="text-orange-400 text-xs mt-2">
-              Pular descanso
+          <div className="bg-orange-950 border border-orange-800 rounded-2xl p-5 mb-4 text-center">
+            <p className="text-orange-400 text-sm font-semibold">⏱️ Descanso entre séries</p>
+            {currentSet && (
+              <p className="text-gray-400 text-xs mt-1">
+                {currentSet.exercise} — Série {currentSet.set}/{currentSet.total} concluída
+              </p>
+            )}
+            <p className="text-white text-6xl font-black my-3">{restTimer}s</p>
+            <div className="h-2 bg-orange-900 rounded-full overflow-hidden mb-3">
+              <div
+                className="h-2 bg-orange-400 rounded-full transition-all"
+                style={{ width: `${(restTimer / 60) * 100}%` }}
+              />
+            </div>
+            <p className="text-gray-400 text-xs mb-3">Respire fundo e se prepare para a próxima série!</p>
+            <button onClick={skipTimer}
+              className="border border-orange-800 text-orange-400 text-sm px-6 py-2 rounded-full">
+              Pular descanso ⏭️
             </button>
           </div>
         )}
 
-        {/* Progresso do treino */}
+        {/* Progresso */}
         <div className="glass-card rounded-2xl p-4 mb-5 border border-gray-800">
           <div className="flex justify-between mb-2">
-            <p className="text-gray-400 text-sm">Progresso do treino</p>
-            <p className="text-white font-bold text-sm">{completedCount}/{totalExercises}</p>
+            <p className="text-gray-400 text-sm">Progresso</p>
+            <p className="text-white font-bold text-sm">{completedCount}/{totalExercises} exercícios</p>
           </div>
           <div className="h-3 bg-gray-900 rounded-full overflow-hidden">
             <div
@@ -421,9 +465,9 @@ export default function TreinoPage() {
               style={{ width: `${workoutProgress}%` }}
             />
           </div>
-          <div className="flex gap-3 mt-3">
+          <div className="flex justify-between mt-2">
             <span className="text-xs text-gray-500">⏱️ {workout?.duration_minutes} min</span>
-            <span className="text-xs text-gray-500">🔥 {workout?.focus}</span>
+            <span className="text-xs text-gray-500">🎯 {workout?.focus}</span>
           </div>
         </div>
 
@@ -440,6 +484,7 @@ export default function TreinoPage() {
           {workout?.exercises.map((exercise, i) => {
             const isExpanded = expandedExercise === i;
             const muscleColor = muscleColors[exercise.muscle_group] ?? 'text-gray-400 bg-gray-900';
+            const muscleEmoji = exerciseEmojis[exercise.muscle_group] ?? '💪';
 
             return (
               <div key={i} className={`rounded-2xl border overflow-hidden transition-all ${
@@ -452,8 +497,10 @@ export default function TreinoPage() {
                   onClick={() => setExpandedExercise(isExpanded ? null : i)}>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold ${
-                        exercise.completed ? 'bg-green-950 text-green-400' : 'bg-gray-900 text-gray-400'
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-lg font-bold ${
+                        exercise.completed
+                          ? 'bg-green-950 text-green-400'
+                          : 'bg-gray-900 text-gray-400'
                       }`}>
                         {exercise.completed ? '✓' : i + 1}
                       </div>
@@ -469,7 +516,7 @@ export default function TreinoPage() {
                         {exercise.sets}x{exercise.reps}
                       </p>
                       {exercise.weight && (
-                        <p className="text-gray-500 text-xs">{exercise.weight}kg</p>
+                        <p className="text-purple-400 text-xs font-semibold">{exercise.weight}kg</p>
                       )}
                     </div>
                   </div>
@@ -477,6 +524,15 @@ export default function TreinoPage() {
 
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-gray-800 pt-4 space-y-4">
+
+                    {/* Ilustração do exercício */}
+                    <div className="bg-gray-900 rounded-xl p-6 text-center">
+                      <div className="text-6xl mb-2">{muscleEmoji}</div>
+                      <p className="text-gray-400 text-xs">
+                        {exercise.muscle_group} — {exercise.name}
+                      </p>
+                    </div>
+
                     <p className="text-gray-300 text-sm leading-relaxed">{exercise.instructions}</p>
 
                     {exercise.tip && (
@@ -485,6 +541,7 @@ export default function TreinoPage() {
                       </div>
                     )}
 
+                    {/* Info das séries */}
                     <div className="grid grid-cols-3 gap-2">
                       <div className="bg-gray-900 rounded-xl p-3 text-center">
                         <p className="text-white font-bold">{exercise.sets}</p>
@@ -492,24 +549,45 @@ export default function TreinoPage() {
                       </div>
                       <div className="bg-gray-900 rounded-xl p-3 text-center">
                         <p className="text-white font-bold">{exercise.reps}</p>
-                        <p className="text-gray-500 text-xs">Reps</p>
+                        <p className="text-gray-500 text-xs">Repetições</p>
                       </div>
                       <div className="bg-gray-900 rounded-xl p-3 text-center">
-                        <p className="text-white font-bold">{exercise.rest_seconds}s</p>
+                        <p className="text-orange-400 font-bold">60s</p>
                         <p className="text-gray-500 text-xs">Descanso</p>
                       </div>
                     </div>
 
+                    {/* Carga — só mostra sem mensagem de aumentar */}
                     {exercise.weight && (
-                      <div className="bg-purple-950/20 border border-purple-900/50 rounded-xl p-3">
-                        <p className="text-purple-300 text-sm font-semibold">
-                          📈 Carga sugerida: {exercise.weight}kg
-                        </p>
-                        <p className="text-gray-400 text-xs mt-1">
-                          Se conseguir completar todas as séries com facilidade, aumente 2.5kg na próxima vez
-                        </p>
+                      <div className="bg-purple-950/20 border border-purple-900/50 rounded-xl p-3 flex justify-between items-center">
+                        <div>
+                          <p className="text-purple-300 text-sm font-semibold">
+                            📈 Carga de hoje
+                          </p>
+                          <p className="text-gray-400 text-xs">
+                            Ajustada automaticamente pelo seu histórico
+                          </p>
+                        </div>
+                        <p className="text-purple-400 text-2xl font-black">{exercise.weight}kg</p>
                       </div>
                     )}
+
+                    {/* Botões de série */}
+                    <div>
+                      <p className="text-gray-400 text-xs mb-2">
+                        Marque cada série ao completar:
+                      </p>
+                      <div className="flex gap-2 mb-3">
+                        {Array.from({ length: exercise.sets }).map((_, setIdx) => (
+                          <button
+                            key={setIdx}
+                            onClick={() => startRestTimer(exercise, setIdx + 1)}
+                            className="flex-1 py-2 rounded-xl text-sm font-bold border border-gray-700 text-gray-400 active:bg-orange-950 active:text-orange-400 active:border-orange-800 transition-all">
+                            {setIdx + 1}ª
+                          </button>
+                        ))}
+                      </div>
+                    </div>
 
                     <button
                       onClick={() => toggleExercise(exercise, i)}
@@ -518,7 +596,10 @@ export default function TreinoPage() {
                           ? 'bg-gray-900 text-gray-400 border border-gray-800'
                           : 'bg-green-950 text-green-400 border border-green-800'
                       }`}>
-                      {exercise.completed ? '↩️ Desmarcar exercício' : '✅ Exercício concluído!'}
+                      {exercise.completed
+                        ? '↩️ Desmarcar exercício'
+                        : '✅ Exercício concluído!'
+                      }
                     </button>
                   </div>
                 )}
@@ -535,17 +616,15 @@ export default function TreinoPage() {
           </div>
         )}
 
-        {/* Coach message */}
         {workout?.coach_message && !workout.completed && (
           <div className="bg-cyan-950/30 border border-cyan-900 rounded-xl p-4 mb-4">
             <p className="text-cyan-300 text-sm leading-relaxed">🏆 {workout.coach_message}</p>
           </div>
         )}
 
-        {/* Botão concluir */}
         {!workout?.completed ? (
           <button
-            onClick={completeWorkout}
+            onClick={() => setShowFeedback(true)}
             disabled={completedCount === 0}
             className="neon-btn-orange w-full py-4 rounded-xl text-orange-400 font-bold text-base disabled:opacity-40">
             🏆 Concluir treino de hoje!
@@ -555,7 +634,7 @@ export default function TreinoPage() {
             <p className="text-4xl mb-2">🏆</p>
             <p className="text-green-400 font-bold text-lg">Treino concluído!</p>
             <p className="text-gray-400 text-sm mt-1">
-              {caloriesBurned} kcal queimadas — já adicionado à sua meta diária
+              {caloriesBurned} kcal queimadas — já na sua barra diária! 🔥
             </p>
             {workout.difficulty_rating && (
               <p className="text-yellow-400 text-sm mt-2">
@@ -565,25 +644,28 @@ export default function TreinoPage() {
             {workout.feedback && (
               <p className="text-gray-400 text-sm mt-2 italic">"{workout.feedback}"</p>
             )}
+            <button
+              onClick={() => router.push('/compartilhar')}
+              className="mt-4 w-full py-3 rounded-xl border border-pink-900 text-pink-400 text-sm font-semibold">
+              📱 Compartilhar treino
+            </button>
           </div>
         )}
 
-        {/* Modal de feedback */}
+        {/* Modal feedback */}
         {showFeedback && (
           <div className="fixed inset-0 bg-black/90 flex items-end z-50 p-4">
             <div className="w-full max-w-sm mx-auto bg-gray-950 border border-gray-800 rounded-2xl p-6">
-              <p className="text-white font-bold text-lg text-center mb-2">🏆 Treino finalizado!</p>
-              <p className="text-gray-400 text-sm text-center mb-6">
-                Incrível, {profile?.full_name?.split(' ')[0]}! Como foi o treino de hoje?
+              <p className="text-white font-bold text-lg text-center mb-1">🏆 Treino finalizado!</p>
+              <p className="text-gray-400 text-sm text-center mb-5">
+                Incrível, {profile?.full_name?.split(' ')[0]}! Como foi hoje?
               </p>
 
               <p className="text-gray-400 text-sm mb-2">Dificuldade</p>
               <div className="flex gap-2 mb-4">
-                {[1, 2, 3, 4, 5].map(star => (
-                  <button
-                    key={star}
-                    onClick={() => setRating(star)}
-                    className="flex-1 py-2 rounded-xl text-xl">
+                {[1,2,3,4,5].map(star => (
+                  <button key={star} onClick={() => setRating(star)}
+                    className="flex-1 py-2 rounded-xl text-2xl">
                     {star <= rating ? '⭐' : '☆'}
                   </button>
                 ))}
@@ -593,20 +675,18 @@ export default function TreinoPage() {
               <textarea
                 value={feedback}
                 onChange={e => setFeedback(e.target.value)}
-                placeholder="Ex: Senti os exercícios mais fáceis hoje, pronto para aumentar a carga!"
+                placeholder="Ex: Me senti muito bem hoje!"
                 rows={3}
                 className="w-full mb-4"
                 style={{ borderRadius: '12px', padding: '12px' }}
               />
 
               <div className="flex gap-3">
-                <button
-                  onClick={() => setShowFeedback(false)}
+                <button onClick={() => setShowFeedback(false)}
                   className="flex-1 py-3 rounded-xl border border-gray-800 text-gray-400 text-sm">
                   Cancelar
                 </button>
-                <button
-                  onClick={saveFeedback}
+                <button onClick={saveFeedback}
                   className="flex-1 py-3 rounded-xl bg-green-950 border border-green-800 text-green-400 font-bold text-sm">
                   Salvar 🎉
                 </button>
@@ -615,7 +695,6 @@ export default function TreinoPage() {
           </div>
         )}
       </div>
-
       <BottomNav active="treino" />
     </div>
   );
