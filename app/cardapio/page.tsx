@@ -140,7 +140,7 @@ export default function CardapioPage() {
       if (data.error) throw new Error(data.error);
 
       // Inserir as 5 refeições uma por uma
-      const savedMeals = [];
+      const savedMeals: any[] = [];
       for (const meal of data.meals) {
         const { data: saved, error } = await supabase
           .from('daily_meals')
