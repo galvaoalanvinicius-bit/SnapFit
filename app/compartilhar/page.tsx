@@ -31,6 +31,8 @@ export default function CompartilharPage() {
   const [loading, setLoading] = useState(true);
   const [selectedCard, setSelectedCard] = useState<'daily' | 'workout' | 'activity'>('daily');
   const [copying, setCopying] = useState(false);
+  const [capturing, setCapturing] = useState(false);
+  const [capturedImage, setCapturedImage] = useState<string | null>(null);
 
   const today = new Date().toISOString().split('T')[0];
   const todayFormatted = new Date().toLocaleDateString('pt-BR', {
@@ -59,9 +61,6 @@ export default function CompartilharPage() {
 
       const completed = meals?.filter(m => m.completed) ?? [];
       const caloriesConsumed = completed.reduce((s, m) => s + m.calories, 0);
-      const proteins = completed.reduce((s, m) => s + m.proteins, 0);
-      const carbs = completed.reduce((s, m) => s + m.carbs, 0);
-      const fat = completed.reduce((s, m) => s + m.fat, 0);
 
       const { data: workout } = await supabase
         .from('workouts').select('*')
@@ -74,8 +73,7 @@ export default function CompartilharPage() {
       const { data: routes } = await supabase
         .from('activity_routes').select('*')
         .eq('user_id', user.id).eq('date', today)
-        .order('created_at', { ascending: false })
-        .limit(1);
+        .order('created_at', { ascending: false }).limit(1);
 
       const latestRoute = routes?.[0] ?? null;
       const actCals = (activities ?? []).reduce((s, a) => s + a.calories_burned, 0);
@@ -91,9 +89,9 @@ export default function CompartilharPage() {
         workoutTitle: workout?.title ?? '',
         workoutCalories: workoutCals,
         topMeal: completed[0]?.meal_name ?? '—',
-        proteins: Math.round(proteins),
-        carbs: Math.round(carbs),
-        fat: Math.round(fat),
+        proteins: Math.round(completed.reduce((s, m) => s + m.proteins, 0)),
+        carbs: Math.round(completed.reduce((s, m) => s + m.carbs, 0)),
+        fat: Math.round(completed.reduce((s, m) => s + m.fat, 0)),
         activityDistance: latestRoute?.distance_km ?? 0,
         activityType: latestRoute?.activity_type ?? '',
         activityPhoto: latestRoute?.photo_url ?? null,
@@ -103,9 +101,67 @@ export default function CompartilharPage() {
     load();
   }, [router]);
 
+  async function captureCard(): Promise<string | null> {
+    if (!cardRef.current) return null;
+    try {
+      const html2canvas = (await import('html2canvas')).default;
+      const canvas = await html2canvas(cardRef.current, {
+        backgroundColor: '#000000',
+        scale: 2,
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+      });
+      return canvas.toDataURL('image/png');
+    } catch (e) {
+      console.error(e);
+      return null;
+    }
+  }
+
+  async function handleCapture() {
+    setCapturing(true);
+    const img = await captureCard();
+    setCapturedImage(img);
+    setCapturing(false);
+  }
+
+  async function downloadImage() {
+    const img = capturedImage ?? await captureCard();
+    if (!img) return;
+    const a = document.createElement('a');
+    a.href = img;
+    a.download = `snapfit-${selectedCard}-${today}.png`;
+    a.click();
+  }
+
+  async function shareNative() {
+    const img = capturedImage ?? await captureCard();
+    if (!img) return;
+
+    // Converter base64 para blob
+    const res = await fetch(img);
+    const blob = await res.blob();
+    const file = new File([blob], `snapfit-${today}.png`, { type: 'image/png' });
+
+    if (navigator.share && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({
+          title: 'SnapFit — Minha evolução',
+          text: getShareText(),
+          files: [file],
+        });
+      } catch (e) {
+        // usuário cancelou
+      }
+    } else {
+      // Fallback: baixar a imagem
+      await downloadImage();
+    }
+  }
+
   function getShareText() {
     if (!summary || !profile) return '';
-    const name = profile.full_name?.split(' ')[0];
     const goalLabel: Record<string, string> = {
       lose_weight: 'emagrecimento 🔥',
       gain_muscle: 'ganho de massa 💪',
@@ -115,16 +171,13 @@ export default function CompartilharPage() {
     if (selectedCard === 'daily') {
       return `⚡ Meu dia no SnapFit — ${todayFormatted}
 
-✅ ${summary.mealsCompleted}/${summary.totalMeals} refeições concluídas
-🍽️ ${summary.caloriesConsumed} kcal consumidas de ${summary.calorieGoal} kcal
-💪 ${summary.caloriesBurned > 0 ? `${summary.caloriesBurned} kcal queimadas` : 'Dia de descanso'}
-📊 Proteínas: ${summary.proteins}g | Carbs: ${summary.carbs}g | Gorduras: ${summary.fat}g
+✅ ${summary.mealsCompleted}/${summary.totalMeals} refeições
+🍽️ ${summary.caloriesConsumed} kcal consumidas
+💪 ${summary.caloriesBurned} kcal queimadas
 🎯 Objetivo: ${goalLabel[profile.goal ?? 'maintain']}
 
-Transformando minha alimentação com IA! 🤖
 snap-fit-sigma.vercel.app
-
-#SnapFit #Nutrição #Saúde #FitnessBrasil`;
+#SnapFit #Nutrição #Saúde`;
     }
 
     if (selectedCard === 'workout') {
@@ -132,41 +185,23 @@ snap-fit-sigma.vercel.app
 
 🏋️ ${summary.workoutTitle || 'Treino do dia'}
 🔥 ${summary.workoutCalories} kcal queimadas
-⏱️ 60 minutos de dedicação pura!
 
-Usando IA para otimizar meus treinos! ⚡
 snap-fit-sigma.vercel.app
-
-#SnapFit #Treino #Fitness #Academia #PersonalTrainer`;
+#SnapFit #Treino #Fitness`;
     }
 
-    const actIcon: Record<string, string> = {
-      'Corrida': '🏃', 'Caminhada': '🚶', 'Bicicleta': '🚴', 'Natação': '🏊',
-    };
-
-    return `${actIcon[summary.activityType] ?? '🏃'} ${summary.activityType} concluída! — ${todayFormatted}
+    return `🏃 ${summary.activityType} concluída! — ${todayFormatted}
 
 📍 ${summary.activityDistance.toFixed(2)}km percorridos
 🔥 ${summary.caloriesBurned} kcal queimadas
-🎯 Objetivo: ${goalLabel[profile.goal ?? 'maintain']}
 
-Rastreando minhas atividades com o SnapFit! ⚡
 snap-fit-sigma.vercel.app
-
-#SnapFit #${summary.activityType} #Fitness #Saúde`;
+#SnapFit #Fitness`;
   }
 
   async function shareWhatsApp() {
-    window.open(`https://wa.me/?text=${encodeURIComponent(getShareText())}`, '_blank');
-  }
-
-  async function shareInstagram() {
-    await navigator.clipboard.writeText(getShareText());
-    alert('Legenda copiada! Abra o Instagram e cole na legenda da sua foto 📸');
-  }
-
-  async function shareFacebook() {
-    window.open(`https://www.facebook.com/sharer/sharer.php?quote=${encodeURIComponent(getShareText())}`, '_blank');
+    const text = encodeURIComponent(getShareText());
+    window.open(`https://wa.me/?text=${text}`, '_blank');
   }
 
   async function copyText() {
@@ -181,7 +216,6 @@ snap-fit-sigma.vercel.app
     </div>
   );
 
-  const netCalories = (summary?.caloriesConsumed ?? 0) - (summary?.caloriesBurned ?? 0);
   const goalLabel: Record<string, string> = {
     lose_weight: '🔥 Emagrecimento',
     gain_muscle: '💪 Ganho de massa',
@@ -193,19 +227,19 @@ snap-fit-sigma.vercel.app
       <div className="max-w-sm mx-auto p-5">
         <div className="pt-8 pb-6">
           <h1 className="text-2xl font-bold text-white">Compartilhar 📱</h1>
-          <p className="text-gray-400 text-sm mt-1">Mostre sua evolução para o mundo!</p>
+          <p className="text-gray-400 text-sm mt-1">Mostre sua evolução!</p>
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
+        <div className="flex gap-2 mb-5">
           {[
-            { key: 'daily', label: '📊 Resumo do dia' },
+            { key: 'daily', label: '📊 Resumo' },
             { key: 'workout', label: '💪 Treino' },
             { key: 'activity', label: '🏃 Atividade' },
           ].map(tab => (
             <button key={tab.key}
-              onClick={() => setSelectedCard(tab.key as any)}
-              className={`flex-shrink-0 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
+              onClick={() => { setSelectedCard(tab.key as any); setCapturedImage(null); }}
+              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-all ${
                 selectedCard === tab.key
                   ? 'bg-cyan-400 text-black'
                   : 'border border-gray-800 text-gray-400'
@@ -215,34 +249,42 @@ snap-fit-sigma.vercel.app
           ))}
         </div>
 
-        {/* Card de preview */}
-        <div ref={cardRef} className="rounded-2xl overflow-hidden mb-6 border border-gray-800"
-          style={{ background: 'linear-gradient(135deg, #000000, #0a0a1a)' }}>
+        {/* Card para capturar */}
+        <div ref={cardRef}
+          className="rounded-2xl overflow-hidden mb-4 border border-gray-800"
+          style={{ background: 'linear-gradient(135deg, #000000, #0a0a1a, #000510)' }}>
+
+          {/* Header */}
+          <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl">⚡</span>
+              <span className="font-black text-lg" style={{
+                background: 'linear-gradient(135deg, #00d4ff, #a855f7, #f97316)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+              }}>SnapFit</span>
+            </div>
+            <span className="text-gray-600 text-xs">{todayFormatted}</span>
+          </div>
 
           {/* Foto da atividade se existir */}
           {selectedCard === 'activity' && summary?.activityPhoto && (
             <img src={summary.activityPhoto}
-              className="w-full h-48 object-cover" alt="Atividade" />
+              className="w-full h-44 object-cover" alt="Atividade"
+              crossOrigin="anonymous" />
           )}
 
           <div className="p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <span className="text-xl">⚡</span>
-                <span className="text-white font-black gradient-text">SnapFit</span>
-              </div>
-              <span className="text-gray-600 text-xs">{todayFormatted}</span>
-            </div>
-
             {selectedCard === 'daily' && summary && (
               <div>
-                <p className="text-white font-bold mb-3">
+                <p className="text-white font-bold mb-4">
                   Resumo de {profile?.full_name?.split(' ')[0]} 🎯
                 </p>
-                <div className="bg-gray-900/50 rounded-xl p-3 mb-3">
+                <div className="bg-gray-900/80 rounded-xl p-3 mb-3">
                   <div className="flex justify-between mb-2">
                     <p className="text-gray-400 text-xs">Calorias</p>
-                    <p className="text-cyan-400 text-xs font-bold">{summary.caloriesConsumed}/{summary.calorieGoal} kcal</p>
+                    <p className="text-cyan-400 text-xs font-bold">
+                      {summary.caloriesConsumed}/{summary.calorieGoal} kcal
+                    </p>
                   </div>
                   <div className="h-2 bg-gray-800 rounded-full">
                     <div className="h-2 rounded-full bg-gradient-to-r from-cyan-400 to-purple-500"
@@ -250,23 +292,20 @@ snap-fit-sigma.vercel.app
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 mb-3">
-                  <div className="bg-gray-900/50 rounded-xl p-2 text-center">
-                    <p className="text-blue-400 font-bold text-sm">{summary.proteins}g</p>
-                    <p className="text-gray-600 text-xs">Prot</p>
+                  <div className="bg-gray-900/80 rounded-xl p-2 text-center">
+                    <p className="text-orange-400 font-black">{summary.caloriesBurned}</p>
+                    <p className="text-gray-600 text-xs">kcal 🔥</p>
                   </div>
-                  <div className="bg-gray-900/50 rounded-xl p-2 text-center">
-                    <p className="text-yellow-400 font-bold text-sm">{summary.carbs}g</p>
-                    <p className="text-gray-600 text-xs">Carb</p>
+                  <div className="bg-gray-900/80 rounded-xl p-2 text-center">
+                    <p className="text-blue-400 font-black">{summary.proteins}g</p>
+                    <p className="text-gray-600 text-xs">Proteínas</p>
                   </div>
-                  <div className="bg-gray-900/50 rounded-xl p-2 text-center">
-                    <p className="text-red-400 font-bold text-sm">{summary.fat}g</p>
-                    <p className="text-gray-600 text-xs">Gord</p>
+                  <div className="bg-gray-900/80 rounded-xl p-2 text-center">
+                    <p className="text-green-400 font-black">{summary.mealsCompleted}/{summary.totalMeals}</p>
+                    <p className="text-gray-600 text-xs">Refeições ✅</p>
                   </div>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">{summary.mealsCompleted}/{summary.totalMeals} refeições ✅</span>
-                  <span className="text-xs text-cyan-400">{goalLabel[profile?.goal ?? 'maintain']}</span>
-                </div>
+                <p className="text-cyan-400 text-xs text-center">{goalLabel[profile?.goal ?? 'maintain']}</p>
               </div>
             )}
 
@@ -275,10 +314,11 @@ snap-fit-sigma.vercel.app
                 <div className="text-5xl mb-3">🏆</div>
                 <p className="text-white font-bold text-lg">{summary.workoutTitle || 'Treino concluído!'}</p>
                 <p className="text-gray-400 text-sm mb-4">60 minutos de dedicação</p>
-                <div className="bg-gray-900/50 rounded-xl p-4">
+                <div className="bg-gray-900/80 rounded-xl p-4">
                   <p className="text-orange-400 text-4xl font-black">{summary.workoutCalories}</p>
                   <p className="text-gray-400 text-sm">calorias queimadas 🔥</p>
                 </div>
+                <p className="text-cyan-400 text-xs mt-3">{goalLabel[profile?.goal ?? 'maintain']}</p>
               </div>
             )}
 
@@ -288,64 +328,80 @@ snap-fit-sigma.vercel.app
                   {summary.activityType || 'Atividade'} concluída! 🏃
                 </p>
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="bg-gray-900/50 rounded-xl p-3 text-center">
+                  <div className="bg-gray-900/80 rounded-xl p-3 text-center">
                     <p className="text-cyan-400 font-black text-xl">
                       {summary.activityDistance.toFixed(2)}km
                     </p>
                     <p className="text-gray-500 text-xs">Distância</p>
                   </div>
-                  <div className="bg-gray-900/50 rounded-xl p-3 text-center">
+                  <div className="bg-gray-900/80 rounded-xl p-3 text-center">
                     <p className="text-orange-400 font-black text-xl">{summary.caloriesBurned}</p>
-                    <p className="text-gray-500 text-xs">kcal queimadas</p>
+                    <p className="text-gray-500 text-xs">kcal 🔥</p>
                   </div>
                 </div>
               </div>
             )}
 
-            <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between">
+            <div className="mt-4 pt-3 border-t border-gray-800 flex justify-between items-center">
               <p className="text-gray-700 text-xs">snap-fit-sigma.vercel.app</p>
-              <p className="text-cyan-400 text-xs font-bold">#SnapFit</p>
+              <p className="text-cyan-400 text-xs font-bold">#SnapFit • Grupo NSG</p>
             </div>
           </div>
         </div>
 
+        {/* Imagem capturada preview */}
+        {capturedImage && (
+          <div className="mb-4">
+            <p className="text-gray-400 text-xs mb-2 text-center">✅ Imagem gerada — pronta para compartilhar!</p>
+            <img src={capturedImage} className="w-full rounded-2xl" alt="Preview" />
+          </div>
+        )}
+
         {/* Botões */}
-        <p className="text-gray-400 text-sm font-semibold mb-3">Compartilhar em</p>
         <div className="space-y-3">
+          {/* Gerar imagem */}
+          <button onClick={handleCapture} disabled={capturing}
+            className="neon-btn w-full py-4 rounded-xl text-cyan-400 font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+            {capturing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+                Gerando imagem...
+              </>
+            ) : '📸 Gerar imagem para compartilhar'}
+          </button>
+
+          {/* Compartilhar nativo (com imagem) */}
+          <button onClick={shareNative}
+            className="neon-btn-orange w-full py-4 rounded-xl text-orange-400 font-bold flex items-center justify-center gap-2">
+            <span className="text-xl">📤</span>
+            Compartilhar imagem (Instagram / Stories)
+          </button>
+
+          {/* Baixar imagem */}
+          <button onClick={downloadImage}
+            className="w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 border border-gray-800 text-gray-300">
+            <span className="text-xl">⬇️</span>
+            Baixar imagem
+          </button>
+
+          {/* WhatsApp texto */}
           <button onClick={shareWhatsApp}
             className="w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3"
             style={{ backgroundColor: '#075e54', color: '#25d366', border: '1px solid #128c7e' }}>
-            <span className="text-2xl">💬</span> WhatsApp
+            <span className="text-xl">💬</span> WhatsApp
           </button>
 
-          <button onClick={shareInstagram}
-            className="w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 text-white"
-            style={{ background: 'linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045)', border: 'none' }}>
-            <span className="text-2xl">📸</span> Instagram (copiar legenda)
-          </button>
-
-          <button onClick={shareFacebook}
-            className="w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 text-white"
-            style={{ backgroundColor: '#1877f2', border: 'none' }}>
-            <span className="text-2xl">👍</span> Facebook
-          </button>
-
+          {/* Copiar texto */}
           <button onClick={copyText}
             className="w-full py-4 rounded-xl font-bold flex items-center justify-center gap-3 border border-gray-800 text-gray-400">
-            <span className="text-2xl">📋</span>
+            <span className="text-xl">📋</span>
             {copying ? 'Copiado! ✅' : 'Copiar texto'}
           </button>
         </div>
 
-        {/* Preview do texto */}
-        <div className="mt-6">
-          <p className="text-gray-500 text-xs font-semibold mb-2">Preview</p>
-          <div className="bg-gray-950 border border-gray-800 rounded-xl p-4">
-            <p className="text-gray-300 text-xs leading-relaxed whitespace-pre-line">
-              {getShareText()}
-            </p>
-          </div>
-        </div>
+        <p className="text-gray-600 text-xs text-center mt-4">
+          Dica: Clique em "Gerar imagem" primeiro, depois compartilhe nos Stories do Instagram!
+        </p>
       </div>
       <BottomNav active="compartilhar" />
     </div>

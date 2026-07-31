@@ -9,57 +9,74 @@ export async function POST(req: NextRequest) {
     );
 
     const body = await req.json();
-    console.log('MP Webhook recebido:', JSON.stringify(body));
+    console.log('Webhook recebido:', JSON.stringify(body));
 
-    const mpId = body.data?.id;
-    if (!mpId) {
-      console.log('ID não encontrado no body');
+    const type = body.type;
+    const dataId = body.data?.id;
+
+    if (!dataId) {
+      console.log('ID não encontrado, ignorando');
       return NextResponse.json({ ok: true });
     }
 
-    // Tentar buscar como assinatura primeiro
-    let mp: any = null;
     let userEmail = '';
+    let mpStatus = '';
+    let mpId = String(dataId);
 
-    const preapprovalRes = await fetch(
-      `https://api.mercadopago.com/preapproval/${mpId}`,
-      {
-        headers: {
-          'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-        },
-      }
-    );
-
-    if (preapprovalRes.ok) {
-      mp = await preapprovalRes.json();
+    // Assinatura recorrente
+    if (type === 'subscription_preapproval' || type === 'preapproval') {
+      const res = await fetch(
+        `https://api.mercadopago.com/preapproval/${dataId}`,
+        { headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
+      );
+      const mp = await res.json();
       console.log('Preapproval:', JSON.stringify(mp));
       userEmail = mp.payer_email ?? '';
+      mpStatus = mp.status ?? '';
+      mpId = String(mp.id ?? dataId);
     }
 
-    // Se não achou como assinatura, tenta como pagamento
-    if (!userEmail) {
-      const paymentRes = await fetch(
-        `https://api.mercadopago.com/v1/payments/${mpId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}`,
-          },
-        }
+    // Pagamento único
+    if (type === 'payment') {
+      const res = await fetch(
+        `https://api.mercadopago.com/v1/payments/${dataId}`,
+        { headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
       );
+      const mp = await res.json();
+      console.log('Payment:', JSON.stringify(mp));
+      userEmail = mp.payer?.email ?? '';
+      mpStatus = mp.status === 'approved' ? 'authorized' : mp.status ?? '';
+      mpId = String(dataId);
+    }
 
-      if (paymentRes.ok) {
-        const payment = await paymentRes.json();
-        console.log('Payment:', JSON.stringify(payment));
-        userEmail = payment.payer?.email ?? '';
+    // Plano de assinatura
+    if (type === 'subscription_authorized_payment') {
+      const res = await fetch(
+        `https://api.mercadopago.com/authorized_payments/${dataId}`,
+        { headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
+      );
+      const mp = await res.json();
+      console.log('Authorized payment:', JSON.stringify(mp));
+
+      // Buscar a assinatura pelo preapproval_id
+      if (mp.preapproval_id) {
+        const subRes = await fetch(
+          `https://api.mercadopago.com/preapproval/${mp.preapproval_id}`,
+          { headers: { 'Authorization': `Bearer ${process.env.MP_ACCESS_TOKEN}` } }
+        );
+        const sub = await subRes.json();
+        userEmail = sub.payer_email ?? '';
+        mpStatus = sub.status ?? '';
+        mpId = String(mp.preapproval_id);
       }
     }
 
     if (!userEmail) {
-      console.log('Email do pagador não encontrado');
+      console.log('Email não encontrado, ignorando');
       return NextResponse.json({ ok: true });
     }
 
-    console.log('Email encontrado:', userEmail);
+    console.log(`Email: ${userEmail} | Status: ${mpStatus} | ID: ${mpId}`);
 
     // Buscar usuário pelo email
     const { data: profile, error: profileError } = await supabase
@@ -69,15 +86,18 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (profileError || !profile) {
-      console.log('Usuário não encontrado para email:', userEmail);
+      console.log('Usuário não encontrado:', userEmail);
       return NextResponse.json({ ok: true });
     }
 
-    console.log('Usuário encontrado:', profile.id);
+    // Determinar status da assinatura
+    const isActive = mpStatus === 'authorized' || mpStatus === 'approved';
+    const status = isActive ? 'active' : 'inactive';
 
-    // Calcular data de expiração (30 dias)
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30);
+    // Calcular expiração (30 dias a partir de hoje se ativo)
+    const expiresAt = isActive
+      ? new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
+      : null;
 
     // Verificar se já existe assinatura
     const { data: existing } = await supabase
@@ -87,36 +107,35 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (existing) {
-      const { error: updateError } = await supabase
+      const { error } = await supabase
         .from('subscriptions')
         .update({
-          status: 'active',
-          expires_at: expiresAt.toISOString(),
-          mp_subscription_id: String(mpId),
-          updated_at: new Date().toISOString(),
+          status,
+          expires_at: expiresAt,
+          mp_subscription_id: mpId,
         })
         .eq('user_id', profile.id);
 
-      if (updateError) console.log('Erro ao atualizar:', updateError.message);
-      else console.log('Assinatura atualizada com sucesso!');
+      if (error) console.log('Erro ao atualizar:', error.message);
+      else console.log(`Assinatura ${status} para ${userEmail}`);
     } else {
-      const { error: insertError } = await supabase
+      const { error } = await supabase
         .from('subscriptions')
         .insert({
           user_id: profile.id,
-          status: 'active',
+          status,
           plan: 'monthly',
-          mp_subscription_id: String(mpId),
-          expires_at: expiresAt.toISOString(),
+          mp_subscription_id: mpId,
+          expires_at: expiresAt,
         });
 
-      if (insertError) console.log('Erro ao inserir:', insertError.message);
-      else console.log('Assinatura criada com sucesso!');
+      if (error) console.log('Erro ao inserir:', error.message);
+      else console.log(`Assinatura criada como ${status} para ${userEmail}`);
     }
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.log('Erro geral no webhook:', error.message);
+    console.log('Erro geral:', error.message);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
