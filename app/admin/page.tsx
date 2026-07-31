@@ -179,7 +179,7 @@ export default function AdminPage() {
             { label: 'Total de usuários', value: stats.total, color: 'text-white' },
             { label: 'Assinaturas ativas', value: stats.ativos, color: 'text-green-400' },
             { label: 'Academia TNT', value: stats.academia, color: 'text-cyan-400' },
-            { label: 'Por conta própria', value: stats.sozinho, color: 'text-purple-400' },
+            { value: 'influencer_francieli', label: `✨ Francieli (${stats.francieli})` },
           ].map(s => (
             <div key={s.label} className="glass-card rounded-xl p-4 text-center border border-gray-800">
               <p className={`text-3xl font-black ${s.color}`}>{s.value}</p>
@@ -202,7 +202,7 @@ export default function AdminPage() {
           {[
             { value: 'all', label: `Todos (${users.length})` },
             { value: 'academia_tnt', label: `🏋️ Academia TNT (${stats.academia})` },
-            { value: 'sozinho', label: `🔍 Própria (${stats.sozinho})` },
+            { value: 'influencer_francieli', label: `✨ Francieli (${stats.francieli})` },
           ].map(f => (
             <button
               key={f.value}

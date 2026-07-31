@@ -75,7 +75,7 @@ export default function RegisterPage() {
             <div className="grid grid-cols-2 gap-3">
               {[
                 { value: 'academia_tnt', label: '🏋️ Academia TNT' },
-                { value: 'sozinho', label: '🔍 Por conta própria' },
+                { value: 'influencer_francieli', label: '✨ Influencer Francieli' },
               ].map(opt => (
                 <button
                   key={opt.value}
