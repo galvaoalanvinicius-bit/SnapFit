@@ -22,6 +22,7 @@ const goalLabels: Record<string, string> = {
 
 const sourceLabels: Record<string, string> = {
   academia_tnt: '🏋️ Academia TNT',
+  influencer_francieli: '✨ Influencer Francieli',
   sozinho: '🔍 Por conta própria',
 };
 
@@ -29,12 +30,12 @@ export default function AdminPage() {
   const router = useRouter();
   const [users, setUsers] = useState<UserData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'academia_tnt' | 'sozinho'>('all');
+  const [filter, setFilter] = useState<'all' | 'academia_tnt' | 'influencer_francieli'>('all');
   const [search, setSearch] = useState('');
   const [stats, setStats] = useState({
     total: 0,
     academia: 0,
-    sozinho: 0,
+    francieli: 0,
     ativos: 0,
   });
 
@@ -61,6 +62,7 @@ export default function AdminPage() {
   async function fetchUsers() {
     setLoading(true);
 
+    // Buscar todos os perfis usando service role via API
     const { data: profiles, error } = await supabase
       .from('profiles')
       .select('*')
@@ -94,7 +96,7 @@ export default function AdminPage() {
     setStats({
       total: userData.length,
       academia: userData.filter(u => u.source === 'academia_tnt').length,
-      sozinho: userData.filter(u => u.source === 'sozinho').length,
+      francieli: userData.filter(u => u.source === 'influencer_francieli').length,
       ativos: userData.filter(u => u.subscription_status === 'active').length,
     });
     setLoading(false);
@@ -160,13 +162,11 @@ export default function AdminPage() {
             <p className="text-cyan-400 text-sm mt-1">SnapFit — Grupo NSG</p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={fetchUsers}
+            <button onClick={fetchUsers}
               className="text-cyan-400 text-sm border border-cyan-900 px-3 py-2 rounded-xl">
               🔄
             </button>
-            <button
-              onClick={() => router.push('/dashboard')}
+            <button onClick={() => router.push('/dashboard')}
               className="text-gray-500 text-sm border border-gray-800 px-4 py-2 rounded-xl">
               ← Voltar
             </button>
@@ -179,7 +179,7 @@ export default function AdminPage() {
             { label: 'Total de usuários', value: stats.total, color: 'text-white' },
             { label: 'Assinaturas ativas', value: stats.ativos, color: 'text-green-400' },
             { label: 'Academia TNT', value: stats.academia, color: 'text-cyan-400' },
-            { label: `✨ Francieli', value: stats.francieli, color: 'text-green-400' },
+            { label: 'Influencer Francieli', value: stats.francieli, color: 'text-purple-400' },
           ].map(s => (
             <div key={s.label} className="glass-card rounded-xl p-4 text-center border border-gray-800">
               <p className={`text-3xl font-black ${s.color}`}>{s.value}</p>
@@ -198,14 +198,13 @@ export default function AdminPage() {
         />
 
         {/* Filtros */}
-        <div className="flex gap-2 mb-5 overflow-x-auto">
+        <div className="flex gap-2 mb-5 overflow-x-auto pb-1">
           {[
             { value: 'all', label: `Todos (${users.length})` },
             { value: 'academia_tnt', label: `🏋️ Academia TNT (${stats.academia})` },
             { value: 'influencer_francieli', label: `✨ Francieli (${stats.francieli})` },
           ].map(f => (
-            <button
-              key={f.value}
+            <button key={f.value}
               onClick={() => setFilter(f.value as any)}
               className={`px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
                 filter === f.value
@@ -219,68 +218,7 @@ export default function AdminPage() {
 
         {/* Lista de usuários */}
         <div className="space-y-3">
-          {filtered.map(user => (
-            <div key={user.id} className="glass-card rounded-xl p-4 border border-gray-800">
-              <div className="flex justify-between items-start mb-3">
-                <div className="flex-1 mr-3">
-                  <p className="text-white font-semibold">
-                    {user.full_name ?? 'Sem nome'}
-                  </p>
-                  <p className="text-gray-500 text-sm">{user.email}</p>
-                </div>
-                <span className={`text-xs px-2 py-1 rounded-full font-semibold flex-shrink-0 ${
-                  user.subscription_status === 'active'
-                    ? 'bg-green-950 text-green-400'
-                    : 'bg-red-950 text-red-400'
-                }`}>
-                  {user.subscription_status === 'active' ? '✅ Ativo' : '❌ Inativo'}
-                </span>
-              </div>
-
-              <div className="flex gap-2 flex-wrap mb-3">
-                {user.source ? (
-                  <span className="text-xs bg-cyan-950 text-cyan-400 px-2 py-1 rounded-full">
-                    {sourceLabels[user.source] ?? user.source}
-                  </span>
-                ) : (
-                  <span className="text-xs bg-gray-900 text-gray-600 px-2 py-1 rounded-full">
-                    Origem não informada
-                  </span>
-                )}
-                {user.goal && (
-                  <span className="text-xs bg-purple-950 text-purple-400 px-2 py-1 rounded-full">
-                    {goalLabels[user.goal] ?? user.goal}
-                  </span>
-                )}
-                <span className="text-xs bg-gray-900 text-gray-500 px-2 py-1 rounded-full">
-                  📅 {new Date(user.created_at).toLocaleDateString('pt-BR')}
-                </span>
-                {!user.onboarding_completed && (
-                  <span className="text-xs bg-yellow-950 text-yellow-400 px-2 py-1 rounded-full">
-                    ⚠️ Onboarding incompleto
-                  </span>
-                )}
-              </div>
-
-              <div className="flex gap-2">
-                {user.subscription_status !== 'active' ? (
-                  <button
-                    onClick={() => liberarAcesso(user.id)}
-                    className="flex-1 py-2 rounded-xl text-sm font-semibold bg-green-950 text-green-400 border border-green-900">
-                    ✅ Liberar acesso
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => revogarAcesso(user.id)}
-                    className="flex-1 py-2 rounded-xl text-sm font-semibold bg-red-950 text-red-400 border border-red-900">
-                    ❌ Revogar acesso
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {filtered.length === 0 && (
+          {filtered.length === 0 ? (
             <div className="glass-card rounded-xl p-8 text-center border border-gray-800">
               <p className="text-4xl mb-3">👤</p>
               <p className="text-white font-semibold mb-1">Nenhum usuário encontrado</p>
@@ -288,6 +226,65 @@ export default function AdminPage() {
                 {search ? 'Tente outro nome ou email' : 'Aguardando novos cadastros'}
               </p>
             </div>
+          ) : (
+            filtered.map(user => (
+              <div key={user.id} className="glass-card rounded-xl p-4 border border-gray-800">
+                <div className="flex justify-between items-start mb-3">
+                  <div className="flex-1 mr-3">
+                    <p className="text-white font-semibold">
+                      {user.full_name ?? 'Sem nome'}
+                    </p>
+                    <p className="text-gray-500 text-sm">{user.email}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded-full font-semibold flex-shrink-0 ${
+                    user.subscription_status === 'active'
+                      ? 'bg-green-950 text-green-400'
+                      : 'bg-red-950 text-red-400'
+                  }`}>
+                    {user.subscription_status === 'active' ? '✅ Ativo' : '❌ Inativo'}
+                  </span>
+                </div>
+
+                <div className="flex gap-2 flex-wrap mb-3">
+                  {user.source ? (
+                    <span className="text-xs bg-cyan-950 text-cyan-400 px-2 py-1 rounded-full">
+                      {sourceLabels[user.source] ?? user.source}
+                    </span>
+                  ) : (
+                    <span className="text-xs bg-gray-900 text-gray-600 px-2 py-1 rounded-full">
+                      Origem não informada
+                    </span>
+                  )}
+                  {user.goal && (
+                    <span className="text-xs bg-purple-950 text-purple-400 px-2 py-1 rounded-full">
+                      {goalLabels[user.goal] ?? user.goal}
+                    </span>
+                  )}
+                  <span className="text-xs bg-gray-900 text-gray-500 px-2 py-1 rounded-full">
+                    📅 {new Date(user.created_at).toLocaleDateString('pt-BR')}
+                  </span>
+                  {!user.onboarding_completed && (
+                    <span className="text-xs bg-yellow-950 text-yellow-400 px-2 py-1 rounded-full">
+                      ⚠️ Onboarding incompleto
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  {user.subscription_status !== 'active' ? (
+                    <button onClick={() => liberarAcesso(user.id)}
+                      className="flex-1 py-2 rounded-xl text-sm font-semibold bg-green-950 text-green-400 border border-green-900">
+                      ✅ Liberar acesso
+                    </button>
+                  ) : (
+                    <button onClick={() => revogarAcesso(user.id)}
+                      className="flex-1 py-2 rounded-xl text-sm font-semibold bg-red-950 text-red-400 border border-red-900">
+                      ❌ Revogar acesso
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))
           )}
         </div>
       </div>
